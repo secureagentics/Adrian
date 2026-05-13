@@ -13,13 +13,19 @@ import (
 )
 
 // AgentRow is the read shape used by the runtime agents listing.
+// AgentProfileID / AgentProfileName link the runtime agent (a LangGraph
+// node name like "reason") to the operator-configured agent_profile
+// it most recently produced events under. Empty strings when no event
+// has been produced yet, or when the profile has been deleted.
 type AgentRow struct {
-	ID         string
-	AgentID    string
-	FirstSeen  time.Time
-	LastSeen   time.Time
-	EventCount int
-	WorstMAD   string
+	ID               string
+	AgentID          string
+	AgentProfileID   string
+	AgentProfileName string
+	FirstSeen        time.Time
+	LastSeen         time.Time
+	EventCount       int
+	WorstMAD         string
 }
 
 // AgentSession describes one session an agent has produced events under.
@@ -75,9 +81,26 @@ func (s *Store) ListAgents(ctx context.Context, perPage, offset int) ([]*AgentRo
 		          END, v.created_at DESC
 		          LIMIT 1),
 		         ''
-		     ) AS worst_mad
+		     ) AS worst_mad,
+		     COALESCE(
+		         (SELECT e.agent_profile_id FROM events e
+		          WHERE e.agent_id = a.agent_id AND e.agent_profile_id IS NOT NULL
+		          ORDER BY e.created_at DESC
+		          LIMIT 1),
+		         ''
+		     ) AS agent_profile_id,
+		     COALESCE(
+		         (SELECT ap.name FROM agent_profiles ap
+		          WHERE ap.id = (
+		              SELECT e.agent_profile_id FROM events e
+		              WHERE e.agent_id = a.agent_id AND e.agent_profile_id IS NOT NULL
+		              ORDER BY e.created_at DESC
+		              LIMIT 1
+		          )),
+		         ''
+		     ) AS agent_profile_name
 		 FROM agents a
-		 ORDER BY a.last_seen DESC
+		 ORDER BY agent_profile_name = '' ASC, agent_profile_name ASC, a.last_seen DESC
 		 LIMIT ? OFFSET ?`,
 		perPage, offset)
 	if err != nil {
@@ -89,7 +112,11 @@ func (s *Store) ListAgents(ctx context.Context, perPage, offset int) ([]*AgentRo
 	for rows.Next() {
 		r := &AgentRow{}
 		var firstSeen, lastSeen string
-		if err := rows.Scan(&r.ID, &r.AgentID, &firstSeen, &lastSeen, &r.EventCount, &r.WorstMAD); err != nil {
+		if err := rows.Scan(
+			&r.ID, &r.AgentID, &firstSeen, &lastSeen,
+			&r.EventCount, &r.WorstMAD,
+			&r.AgentProfileID, &r.AgentProfileName,
+		); err != nil {
 			return nil, 0, err
 		}
 		r.FirstSeen = parseTime(firstSeen)
@@ -106,9 +133,29 @@ func (s *Store) GetAgent(ctx context.Context, agentID string) (*AgentRow, []*Age
 	r := &AgentRow{AgentID: agentID}
 	var firstSeen, lastSeen string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, first_seen, last_seen FROM agents WHERE agent_id = ?`,
+		`SELECT
+		     a.id, a.first_seen, a.last_seen,
+		     COALESCE(
+		         (SELECT e.agent_profile_id FROM events e
+		          WHERE e.agent_id = a.agent_id AND e.agent_profile_id IS NOT NULL
+		          ORDER BY e.created_at DESC
+		          LIMIT 1),
+		         ''
+		     ) AS agent_profile_id,
+		     COALESCE(
+		         (SELECT ap.name FROM agent_profiles ap
+		          WHERE ap.id = (
+		              SELECT e.agent_profile_id FROM events e
+		              WHERE e.agent_id = a.agent_id AND e.agent_profile_id IS NOT NULL
+		              ORDER BY e.created_at DESC
+		              LIMIT 1
+		          )),
+		         ''
+		     ) AS agent_profile_name
+		 FROM agents a
+		 WHERE a.agent_id = ?`,
 		agentID,
-	).Scan(&r.ID, &firstSeen, &lastSeen)
+	).Scan(&r.ID, &firstSeen, &lastSeen, &r.AgentProfileID, &r.AgentProfileName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, ErrNotFound
