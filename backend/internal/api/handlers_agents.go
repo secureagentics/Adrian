@@ -13,12 +13,14 @@ import (
 )
 
 type agentEntry struct {
-	ID         string `json:"id"`
-	AgentID    string `json:"agent_id"`
-	FirstSeen  string `json:"first_seen"`
-	LastSeen   string `json:"last_seen"`
-	EventCount int    `json:"event_count"`
-	WorstMAD   string `json:"worst_mad"`
+	ID               string `json:"id"`
+	AgentID          string `json:"agent_id"`
+	AgentProfileID   string `json:"agent_profile_id"`
+	AgentProfileName string `json:"agent_profile_name"`
+	FirstSeen        string `json:"first_seen"`
+	LastSeen         string `json:"last_seen"`
+	EventCount       int    `json:"event_count"`
+	WorstMAD         string `json:"worst_mad"`
 }
 
 type agentListResponse struct {
@@ -87,11 +89,13 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 
 func agentRowToEntry(row *store.AgentRow) agentEntry {
 	return agentEntry{
-		ID:         row.ID,
-		AgentID:    row.AgentID,
-		FirstSeen:  row.FirstSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastSeen:   row.LastSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
-		EventCount: row.EventCount,
-		WorstMAD:   row.WorstMAD,
+		ID:               row.ID,
+		AgentID:          row.AgentID,
+		AgentProfileID:   row.AgentProfileID,
+		AgentProfileName: row.AgentProfileName,
+		FirstSeen:        row.FirstSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
+		LastSeen:         row.LastSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
+		EventCount:       row.EventCount,
+		WorstMAD:         row.WorstMAD,
 	}
 }
