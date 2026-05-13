@@ -492,7 +492,10 @@ class TestReconnectReplayOrdering:
         # first buffered frame and the second, fire a "live" emit
         # that must NOT jump ahead of the remaining buffered frames.
         client = WebSocketClient(
-            "ws://x", "sess-1", api_key="k", replay_buffer_frames=100,
+            "ws://x",
+            "sess-1",
+            api_key="k",
+            replay_buffer_frames=100,
         )
 
         mock_ws_initial = AsyncMock()
@@ -563,7 +566,10 @@ class TestReconnectReplayOrdering:
         """With ``_replaying`` set, a live ``_send_frame`` appends to
         the deque and does NOT touch ``ws.send`` directly."""
         client = WebSocketClient(
-            "ws://x", "sess-1", api_key="k", replay_buffer_frames=10,
+            "ws://x",
+            "sess-1",
+            api_key="k",
+            replay_buffer_frames=10,
         )
         mock_ws = AsyncMock()
 
@@ -601,7 +607,7 @@ class _QuotaClosingWs:
     def __init__(self, close_code: int) -> None:
         self.close_code = close_code
 
-    def __aiter__(self) -> "_QuotaClosingWs":
+    def __aiter__(self) -> _QuotaClosingWs:
         return self
 
     async def __anext__(self) -> bytes:

@@ -8,14 +8,12 @@ from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatGeneration, LLMResult
-
 import adrian
+import pytest
 from adrian.format.types import LlmPairData, PairedEvent
 from adrian.pii import RedactingHandler
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 
 class _Collector:
@@ -75,7 +73,9 @@ class TestPiiRedactionAlwaysOn:
             messages=[batch],
             run_id=run_id,
         )
-        gen = ChatGeneration(message=AIMessage(content="Got it, contacting user@secret.com"))
+        gen = ChatGeneration(
+            message=AIMessage(content="Got it, contacting user@secret.com")
+        )
         await handler.on_llm_end(
             response=LLMResult(generations=[[gen]]),
             run_id=run_id,

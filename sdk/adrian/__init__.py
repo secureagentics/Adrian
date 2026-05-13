@@ -21,13 +21,19 @@ pluggable handlers (JSONL, WebSocket, custom).
 
 from __future__ import annotations
 
-import atexit
 import asyncio
+import atexit
 import logging
 import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from langchain_core.callbacks.manager import CallbackManager
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.runnables.base import Runnable
+from langchain_core.runnables.config import ensure_config
 
 from adrian.config import (
     AdrianConfig,
@@ -50,8 +56,10 @@ from adrian.hooks import EventHandler, HookRegistry
 from adrian.mcp import (
     McpServer,
     _patch_mcp_adapter,  # pyright: ignore[reportPrivateUsage]
-    _reset as _reset_mcp,  # pyright: ignore[reportPrivateUsage]
     mcp_servers,
+)
+from adrian.mcp import (
+    _reset as _reset_mcp,  # pyright: ignore[reportPrivateUsage]
 )
 from adrian.pairing import EventPairBuffer
 from adrian.pii import (
@@ -61,17 +69,10 @@ from adrian.pii import (
     RedactionStrategy,
     redact_text,
 )
+from adrian.proto import event_pb2 as pb
 from adrian.session_persistence import resolve_session_id
 from adrian.types import ToolCallRecord, VerdictContext
 from adrian.ws import WebSocketClient
-
-from langchain_core.callbacks.manager import CallbackManager
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langchain_core.runnables.base import Runnable
-from langchain_core.runnables.config import ensure_config
-
-from adrian.proto import event_pb2 as pb
 
 __version__ = "1.0.0"
 __all__ = [

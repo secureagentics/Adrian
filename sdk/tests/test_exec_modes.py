@@ -18,16 +18,15 @@ from pathlib import Path  # noqa: TC003
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import adrian
 import pytest
+from adrian.proto import event_pb2 as pb
+from adrian.ws import WebSocketClient
 from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig, ensure_config
 from langgraph._internal._constants import CONF, CONFIG_KEY_RUNTIME
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
-
-import adrian
-from adrian.proto import event_pb2 as pb
-from adrian.ws import WebSocketClient
 
 
 def _runtime_config() -> RunnableConfig:
@@ -118,7 +117,8 @@ class TestHitlMode:
         ws.register_pending("evt-1").set_result(verdict)
 
         result = await ToolNode([_stub_tool(captured)]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
-            _ainvoke_state(), config=_runtime_config(),
+            _ainvoke_state(),
+            config=_runtime_config(),
         )
 
         assert captured == ["hi"]
@@ -136,14 +136,16 @@ class TestHitlMode:
         ws.register_pending("evt-1").set_result(verdict)
 
         result = await ToolNode([_stub_tool(captured)]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
-            _ainvoke_state(), config=_runtime_config(),
+            _ainvoke_state(),
+            config=_runtime_config(),
         )
 
         assert captured == []
         assert "BLOCKED" in result["messages"][0].content
 
     async def test_out_of_scope_continues_without_hitl(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Out-of-scope verdict is forwarded immediately without ``hitl``;
 
@@ -160,7 +162,8 @@ class TestHitlMode:
         ws.register_pending("evt-1").set_result(verdict)
 
         await ToolNode([_stub_tool(captured)]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
-            _ainvoke_state(), config=_runtime_config(),
+            _ainvoke_state(),
+            config=_runtime_config(),
         )
 
         assert captured == ["hi"]
@@ -188,7 +191,8 @@ class _FakeWs:
 
 class TestRecvLoopProtocol:
     async def test_stray_hitl_resolution_logs_and_drops(
-        self, caplog: pytest.LogCaptureFixture,
+        self,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """A HITL verdict for an unknown event_id is dropped with a WARN.
 
@@ -219,7 +223,8 @@ class TestRecvLoopProtocol:
         assert client._mode == pb.MODE_HITL  # LoginAck was applied
 
     async def test_protocol_error_first_frame_not_login_ack(
-        self, caplog: pytest.LogCaptureFixture,
+        self,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """First frame must be ``login_ack``; anything else exits the loop."""
         verdict_frame = pb.ServerFrame()

@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from adrian.session_persistence import (
     _config_dir,
     _config_path,
@@ -73,7 +72,9 @@ class TestReadWrite:
         assert _read_persisted(cwd) is None
 
     def test_read_corrupt_json_returns_none(
-        self, cwd: Path, caplog: pytest.LogCaptureFixture,
+        self,
+        cwd: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         path = _config_path(cwd)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +131,9 @@ class TestResolveSessionId:
         assert resolve_session_id(a) != resolve_session_id(b)
 
     def test_corrupt_file_falls_back_to_fresh(
-        self, cwd: Path, caplog: pytest.LogCaptureFixture,
+        self,
+        cwd: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         path = _config_path(cwd)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,13 +173,17 @@ class TestResolveSessionId:
 
 class TestEnvAwareResolve:
     def test_env_var_wins_over_explicit(
-        self, cwd: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("ADRIAN_SESSION_ID", "from-env")
         assert env_aware_resolve_session_id("explicit-arg", cwd) == "from-env"
 
     def test_explicit_wins_over_persistent(
-        self, cwd: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("ADRIAN_SESSION_ID", raising=False)
         # Pre-populate persistent file.
@@ -184,14 +191,18 @@ class TestEnvAwareResolve:
         assert env_aware_resolve_session_id("explicit-arg", cwd) == "explicit-arg"
 
     def test_persistent_used_when_no_env_or_explicit(
-        self, cwd: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("ADRIAN_SESSION_ID", raising=False)
         _write_persisted("persisted-id", cwd)
         assert env_aware_resolve_session_id(None, cwd) == "persisted-id"
 
     def test_explicit_does_not_pollute_persistent_file(
-        self, cwd: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # Pre-populate file, then call with explicit override.
         monkeypatch.delenv("ADRIAN_SESSION_ID", raising=False)
@@ -211,7 +222,9 @@ class TestEnvAwareResolve:
         assert _read_persisted(cwd) == "persisted-id"
 
     def test_no_input_no_file_creates_persistent(
-        self, cwd: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("ADRIAN_SESSION_ID", raising=False)
         sid = env_aware_resolve_session_id(None, cwd)

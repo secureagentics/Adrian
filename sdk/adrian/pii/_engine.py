@@ -71,6 +71,6 @@ def redact_text(
 
     for det in reversed(detections):
         replacement = apply_strategy(det, cfg.strategy)
-        result = result[:det.start] + replacement + result[det.end:]
+        result = result[: det.start] + replacement + result[det.end :]
 
     return RedactionResult(text=result, detections=detections)

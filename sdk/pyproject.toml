@@ -47,6 +47,7 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.15.0",
     "basedpyright>=1.38.0",
+    "pre-commit>=4.6.0",
     "langgraph==1.1.2",
     "langgraph-prebuilt==1.0.8",
     "langchain-mcp-adapters>=0.2.2",
@@ -68,13 +69,20 @@ extend-exclude = ["adrian/proto"]
 
 [tool.ruff.lint]
 select = [
-  "D",     # pydocstyle: docstring enforcement
+  "D",        # pydocstyle: docstring enforcement
+  "E", "W",   # pycodestyle (PEP 8)
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # flake8-bugbear
+  "UP",       # pyupgrade
+  "SIM",      # flake8-simplify
 ]
 ignore = [
   "D100",  # Missing docstring in public module
   "D104",  # Missing docstring in public package
   "D203",  # Conflicts with D211 (no-blank-line-before-class)
   "D213",  # Conflicts with D212 (multi-line-summary-second-line)
+  "E501",  # line-too-long: handled by the formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]

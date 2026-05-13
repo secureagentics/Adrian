@@ -20,16 +20,19 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.messages import BaseMessage  # noqa: TC002
-from langchain_core.outputs import ChatGeneration, LLMResult
-
 from adrian.config import AdrianConfig
 from adrian.context import AgentContextTracker
 from adrian.format.types import PairedEvent
 from adrian.handler import AdrianCallbackHandler
 from adrian.hooks import HookRegistry
 from adrian.pairing import EventPairBuffer
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,  # noqa: TC002
+    HumanMessage,
+    SystemMessage,
+)
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 
 class _Collector:
@@ -164,7 +167,9 @@ class TestS2Handoff:
             ns="triage:aa",
             system_prompt="You are triage.",
             user_instruction="Route this query.",
-            output_message=_ai_with_tool("handing off", "transfer_to_specialist", "tc-t1"),
+            output_message=_ai_with_tool(
+                "handing off", "transfer_to_specialist", "tc-t1"
+            ),
         )
         await _llm_turn(
             handler,
@@ -216,7 +221,9 @@ class TestS3RouterPeers:
 
         assert all(e.parent is None for e in events)
         assert [e.agent.agent_id for e in events] == [
-            "math_agent", "writing_agent", "search_agent",
+            "math_agent",
+            "writing_agent",
+            "search_agent",
         ]
 
 
@@ -301,7 +308,9 @@ class TestS6SwarmSetOnceRule:
         a1, b1, a2 = events
         assert a1.parent is None
         assert b1.parent is not None and b1.parent.agent_id == "Alice|agent"
-        assert a2.parent is None, "Alice's re-appearance keeps parent=None (set-once rule)"
+        assert a2.parent is None, (
+            "Alice's re-appearance keeps parent=None (set-once rule)"
+        )
 
 
 class TestS7Supervisor:
@@ -399,9 +408,7 @@ class TestS8DeepResearchParallel:
         assert sup.parent is None
 
         for i, r in enumerate(researchers):
-            expected = (
-                f"research_supervisor|supervisor|supervisor_tools|{i}|researcher"
-            )
+            expected = f"research_supervisor|supervisor|supervisor_tools|{i}|researcher"
             assert r.agent.agent_id == expected
             assert r.parent is not None
             assert r.parent.agent_id == "research_supervisor|supervisor"
@@ -436,10 +443,7 @@ class TestS8GraphEdgeDelegation:
         for i in range(2):
             await _llm_turn(
                 handler,
-                ns=(
-                    "research_supervisor:aa|supervisor_tools:cc"
-                    f"|{i}|researcher:dd"
-                ),
+                ns=(f"research_supervisor:aa|supervisor_tools:cc|{i}|researcher:dd"),
                 system_prompt=f"You are researcher {i}.",
                 user_instruction=f"Research topic {chr(ord('a') + i)}.",
                 output_message=AIMessage(content=f"result {i}"),
@@ -451,9 +455,7 @@ class TestS8GraphEdgeDelegation:
         assert sup.parent is None
 
         for i, r in enumerate((r0, r1)):
-            expected_id = (
-                f"research_supervisor|supervisor_tools|{i}|researcher"
-            )
+            expected_id = f"research_supervisor|supervisor_tools|{i}|researcher"
             assert r.agent.agent_id == expected_id
             assert r.parent is not None, (
                 "researcher must inherit supervisor via prefix fallback"

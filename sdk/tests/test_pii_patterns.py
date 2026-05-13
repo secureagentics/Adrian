@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from adrian.pii._patterns import PiiType, detect
 
-
 # ------------------------------------------------------------------
 # EMAIL
 # ------------------------------------------------------------------
@@ -331,7 +330,9 @@ class TestUkPostcodeDetection:
 
 class TestDriverLicenseDetection:
     def test_with_full_phrase(self) -> None:
-        dets = detect("driver's license: D12345678", frozenset({PiiType.DRIVER_LICENSE}))
+        dets = detect(
+            "driver's license: D12345678", frozenset({PiiType.DRIVER_LICENSE})
+        )
         assert len(dets) == 1
         assert dets[0].text == "D12345678"
 

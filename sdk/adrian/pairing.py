@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -139,10 +139,14 @@ class EventPairBuffer:
             return None
 
         if event_type == "llm_end" and start.event_type == "chat_model_start":
-            return self._assemble_llm_pair(start, data, run_id, invocation_id, session_id)
+            return self._assemble_llm_pair(
+                start, data, run_id, invocation_id, session_id
+            )
 
         if event_type == "tool_end" and start.event_type == "tool_start":
-            return self._assemble_tool_pair(start, data, run_id, invocation_id, session_id)
+            return self._assemble_tool_pair(
+                start, data, run_id, invocation_id, session_id
+            )
 
         logger.warning(
             "mismatched pair: start=%s end=%s run_id=%s",
@@ -200,7 +204,7 @@ class EventPairBuffer:
             invocation_id=invocation_id,
             session_id=session_id,
             run_id=run_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             pair_type="llm",
             agent=AgentContext(
                 agent_id=start.agent_id,
@@ -250,7 +254,7 @@ class EventPairBuffer:
             invocation_id=invocation_id,
             session_id=session_id,
             run_id=run_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             pair_type="tool",
             agent=start.agent_context or AgentContext(agent_id=start.agent_id),
             parent=start.parent,

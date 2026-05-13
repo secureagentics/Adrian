@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -253,10 +254,8 @@ class TestConnect:
         assert isinstance(client._recv_task, asyncio.Task)
 
         client._recv_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await client._recv_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ------------------------------------------------------------------

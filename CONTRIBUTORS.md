@@ -6,7 +6,7 @@ Thanks to everyone who has shaped Adrian. See the bottom for how to add yourself
 
 - [Shahtaj Khalid](https://github.com/shahtajkhalid)
 - [Yanny Christoforidis](https://github.com/yanny-sec)
-- [Netan Mangal](https://github.com/netan-sa) 
+- [Netan Mangal](https://github.com/netan-sa)
 - [Max Corbridge](https://github.com/max-c-sa)
 - [Muhammad Faizan](https://github.com/Muhammad-at-sec)
 

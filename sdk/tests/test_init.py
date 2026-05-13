@@ -7,17 +7,14 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
+import adrian
 import pytest
+from adrian.config import AdrianConfig, get_config, is_initialized
 from langchain_core.callbacks.manager import CallbackManager
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables.base import Runnable
 from langgraph.prebuilt import ToolNode
 from langgraph.pregel import Pregel
-
-from adrian.config import AdrianConfig
-
-import adrian
-from adrian.config import get_config, is_initialized
 
 
 @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]

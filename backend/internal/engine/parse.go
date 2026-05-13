@@ -25,7 +25,7 @@ func parseMADCode(response string) string {
 }
 
 // stripReasoning removes <reasoning>...</reasoning> blocks from model
-// output before parseMADCode runs. Reasoning models 
+// output before parseMADCode runs. Reasoning models
 // emit their thinking in those tags; the M-code
 // answer follows. Without stripping, parseMADCode can match an
 // M-code mention inside the reasoning block and return the wrong

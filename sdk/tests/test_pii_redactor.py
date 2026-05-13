@@ -86,7 +86,9 @@ class TestPiiRedactorLlm:
 
     def test_redacts_tool_call_args(self) -> None:
         event = _llm_event(
-            tool_calls=[{"id": "tc-1", "name": "send", "args": {"to": "user@test.com"}}],
+            tool_calls=[
+                {"id": "tc-1", "name": "send", "args": {"to": "user@test.com"}}
+            ],
         )
         redactor = PiiRedactor()
         redacted = redactor.redact_event(event)
@@ -134,7 +136,9 @@ class TestPiiRedactorNestedArgs:
                 {
                     "id": "tc-1",
                     "name": "create_user",
-                    "args": {"profile": {"email": "deep@x.com", "phone": "555-123-4567"}},
+                    "args": {
+                        "profile": {"email": "deep@x.com", "phone": "555-123-4567"}
+                    },
                 },
             ],
         )

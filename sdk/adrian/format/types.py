@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from adrian.types import ChatMessage, ToolCallRecord, TokenUsage
+from adrian.types import ChatMessage, TokenUsage, ToolCallRecord
 
 
 @dataclass(slots=True)

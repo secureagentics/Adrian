@@ -6,16 +6,19 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.messages import BaseMessage  # noqa: TC002
-from langchain_core.outputs import ChatGeneration, LLMResult
-
 from adrian.config import AdrianConfig
 from adrian.context import AgentContextTracker
 from adrian.format.types import LlmPairData, PairedEvent, ToolPairData
 from adrian.handler import AdrianCallbackHandler, extract_model_name
 from adrian.hooks import HookRegistry
 from adrian.pairing import EventPairBuffer
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,  # noqa: TC002
+    HumanMessage,
+    SystemMessage,
+)
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 
 class _Collector:

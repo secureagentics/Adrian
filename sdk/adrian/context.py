@@ -166,7 +166,7 @@ class AgentContextTracker:
 
                     common = 0
 
-                    for op, np in zip(other_parts, new_parts):
+                    for op, np in zip(other_parts, new_parts, strict=False):
                         if op == np:
                             common += 1
                         else:
@@ -197,7 +197,6 @@ class AgentContextTracker:
         self._last_agent_id = agent_id
 
         return self._parent_map.get(agent_id)
-
 
     def get_parent(self, agent_id: str) -> ParentContext | None:
         """Get the stored parent context for an agent.

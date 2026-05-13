@@ -92,4 +92,4 @@ class TestRedactionResult:
         text = "hi user@example.com bye"
         result = redact_text(text)
         det = result.detections[0]
-        assert text[det.start:det.end] == det.text
+        assert text[det.start : det.end] == det.text

@@ -345,12 +345,14 @@ def detect(
             if not _passes_post_filter(post_filter, text, m, matched_text):
                 continue
 
-            raw.append(Detection(
-                pii_type=pii_type,
-                start=start,
-                end=end,
-                text=matched_text,
-            ))
+            raw.append(
+                Detection(
+                    pii_type=pii_type,
+                    start=start,
+                    end=end,
+                    text=matched_text,
+                )
+            )
 
     return _resolve_overlaps(raw)
 
@@ -370,13 +372,21 @@ def _passes_post_filter(
             return _luhn_check(digits)
         case "dob_context":
             return _has_context(
-                text, match.start(), match.end(), _DOB_CONTEXT_RE,
-                before=50, after=30,
+                text,
+                match.start(),
+                match.end(),
+                _DOB_CONTEXT_RE,
+                before=50,
+                after=30,
             )
         case "postal_context":
             return _has_context(
-                text, match.start(), match.end(), _POSTAL_CONTEXT_RE,
-                before=30, after=0,
+                text,
+                match.start(),
+                match.end(),
+                _POSTAL_CONTEXT_RE,
+                before=30,
+                after=0,
             )
         case "private_ip":
             return _is_private_ip(matched_text)

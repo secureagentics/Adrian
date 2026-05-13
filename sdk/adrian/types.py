@@ -11,7 +11,6 @@ from typing import TypedDict
 
 from adrian.proto import event_pb2 as pb
 
-
 # ------------------------------------------------------------------
 # Shared primitives
 # ------------------------------------------------------------------

@@ -12,6 +12,7 @@ registry alongside ``JSONLHandler``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -113,11 +114,9 @@ def _safe_cancel(
     """
     if task_or_future is None or task_or_future.done():
         return
-    try:
+    # "Event loop is closed", old loop is gone, nothing to cancel.
+    with contextlib.suppress(RuntimeError):
         task_or_future.cancel()
-    except RuntimeError:
-        # "Event loop is closed", old loop is gone, nothing to cancel.
-        pass
 
 
 def _paired_event_to_proto(event: PairedEvent) -> pb.PairedEvent:
@@ -426,10 +425,8 @@ class WebSocketClient:
         self._connect_task = None
 
         if self._ws is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._ws.close(), timeout=2.0)
-            except Exception:
-                pass
             self._ws = None
 
         for fut in self._pending_verdicts.values():

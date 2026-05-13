@@ -28,11 +28,11 @@ from adrian.types import (
     EventData,
     EventRecord,
     LlmEndData,
+    TokenUsage,
     ToolArgs,
     ToolCallRecord,
     ToolEndData,
     ToolStartData,
-    TokenUsage,
     VerdictContext,
 )
 

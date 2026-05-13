@@ -25,6 +25,7 @@ an existing user-named entry for the same ``(transport, endpoint)``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from collections.abc import Mapping
@@ -315,11 +316,9 @@ def _rebind_symbol(attr: str, original: Any, replacement: Any) -> None:  # noqa:
 
         bound = getattr(mod, attr, None)
         if bound is original:
-            try:
+            # Some modules disallow attribute writes; skip those.
+            with contextlib.suppress(AttributeError, TypeError):
                 setattr(mod, attr, replacement)
-            except (AttributeError, TypeError):
-                # Some modules disallow attribute writes; skip.
-                pass
 
 
 # ------------------------------------------------------------------

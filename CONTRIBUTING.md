@@ -19,6 +19,31 @@ Thanks for considering a contribution. Adrian is open-source under the [Apache 2
 - New source files get the [`LICENSE_HEADER.txt`](LICENSE_HEADER.txt) header.
 - If you'd like credit, add yourself to [`CONTRIBUTORS.md`](CONTRIBUTORS.md) in the same PR or in a one-line follow-up. The list is maintained by hand.
 
+## Local dev setup
+
+The Python SDK lives at `sdk/`. From the repo root:
+
+```sh
+make sdk-install            # creates .venv and installs sdk + dev deps via uv
+source .venv/bin/activate
+pre-commit install          # wires the git hook
+```
+
+After `pre-commit install`, every `git commit` runs the configured hooks on
+staged files: `ruff format`, `ruff check --fix`, `basedpyright` on
+`sdk/adrian/`, plus the standard whitespace / YAML / TOML checks. Hooks that
+modify files (formatter, autofix) leave the commit aborted; re-stage the files
+and commit again.
+
+To run the hooks across the whole tree on demand without committing:
+
+```sh
+pre-commit run --all-files
+```
+
+The config lives at [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
+Only Python files under `sdk/` and `scripts/` are in scope.
+
 ## Style
 
 Adrian's prose follows a small set of rules. Apply them to docs, READMEs, comments, and PR descriptions:
