@@ -177,6 +177,8 @@ func renderPolicy(ctx context.Context, profile *store.AgentProfile, guid string)
 	if profile != nil && profile.Enabled {
 		if r := strings.TrimSpace(profile.Remit); r != "" {
 			remit = wrap(r, guid)
+		} else if n := strings.TrimSpace(profile.Name); n != "" {
+			remit = wrap(n, guid)
 		}
 		m0Entries = decodeOrWarn(ctx, "m0_entries", profile.ID, profile.M0Entries)
 		m3Entries = decodeOrWarn(ctx, "m3_entries", profile.ID, profile.M3Entries)

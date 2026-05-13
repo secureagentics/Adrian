@@ -57,6 +57,22 @@ func TestRenderPolicyDisabledProfile(t *testing.T) {
 	}
 }
 
+func TestRenderPolicyNameFallback(t *testing.T) {
+	p := &store.AgentProfile{
+		Enabled: true,
+		Name:    "support-bot",
+		Remit:   "",
+	}
+	got := renderPolicy(context.Background(), p, "G")
+	wantRemit := `<adrian-untrusted id="G">support-bot</adrian-untrusted id="G">`
+	if !strings.Contains(got, wantRemit) {
+		t.Errorf("expected name to fall in for empty remit, wrapped %q; got:\n%s", wantRemit, got)
+	}
+	if strings.Contains(got, genericRemit) {
+		t.Errorf("generic remit leaked when name fallback should have applied")
+	}
+}
+
 func TestRenderPolicyWithProfile(t *testing.T) {
 	p := &store.AgentProfile{
 		Enabled:   true,
