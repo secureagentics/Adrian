@@ -1,0 +1,3 @@
+# Default reviewers for all PRs.
+# Both must have write access on this repo for auto-request to fire.
+*    @shahtajkhalid @yanny-sec
