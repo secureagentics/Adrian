@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue.svg" alt="Licence" /></a>
+  <a href="https://app.adrian.secureagentics.ai/"><img src="https://img.shields.io/badge/Dashboard-Sign%20Up-22C55E" alt="Dashboard" /></a>  
   <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/6nmJ9k3u6"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
@@ -31,12 +32,6 @@ Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security moni
 </p>
 
 https://github.com/user-attachments/assets/96974b9d-4862-41ac-a499-ef5cfe76e16a
-
-## Why Adrian is different
-
-Most agent monitoring stops at activity logs: APIs, MCP, DB interactions, tool calls, etc. Adrian enhances this by also analysing the agent's reasoning: understanding _why_ it took an action, under what context, and what it is planning on doing next. [Research by OpenAI and DeepMind](https://arxiv.org/pdf/2503.11926) found that combining behaviour and reasoning analysis like this boosts detection accuracy by around 35% and is 4x more likely to catch nuanced attacks. Adrian is the first tool to put that into a deployable security control, and it is free, forever.
-
-Furthermore, most tools in this space are lightweight machine learning classifiers trained to spot patterns which match their training data (usually labelled prompt injection datasets). Adrian takes a different approach: it uses world models that understand risk through reasoning like a human does. It correlates behaviours across a session, holds a working understanding of what the agent is meant to be doing, and assesses each new action against that. The detection logic is closer to a human reviewer's than to pattern matching against examples it has been trained to spot. For example, if your e-commerce agent starts resetting user passwords that isn't going to appear in any training dataset, but this is a risk you should be flagging. This is where you get the meaningful security uplift that allows you to use agentic AI with confidence, and it's exactly why we made Adrian.
 
 ## Quickstart
 
@@ -132,6 +127,13 @@ Adrian supports entirely offline, data sovereign deployments using just a handfu
    Use the same `adrian.init` snippet as in the [Quickstart](#quickstart) above. The SDK defaults to `ws://localhost:8080/ws`, so a self-hosted setup needs nothing more than the API key - drop the `ws_url=` line.
 
 To [reset the admin password](https://docs.adrian.secureagentics.ai/reference/backend#reset-the-admin-password), [change the model](https://docs.adrian.secureagentics.ai/reference/backend#switch-the-local-gguf) and much more check out the dedicated [Docs site](https://docs.adrian.secureagentics.ai/).
+
+## Why Adrian is different
+
+Most agent monitoring stops at activity logs: APIs, MCP, DB interactions, tool calls, etc. Adrian enhances this by also analysing the agent's reasoning: understanding _why_ it took an action, under what context, and what it is planning on doing next. [Research by OpenAI and DeepMind](https://arxiv.org/pdf/2503.11926) found that combining behaviour and reasoning analysis like this boosts detection accuracy by around 35% and is 4x more likely to catch nuanced attacks. Adrian is the first tool to put that into a deployable security control, and it is free, forever.
+
+Furthermore, most tools in this space are lightweight machine learning classifiers trained to spot patterns which match their training data (usually labelled prompt injection datasets). Adrian takes a different approach: it uses world models that understand risk through reasoning like a human does. It correlates behaviours across a session, holds a working understanding of what the agent is meant to be doing, and assesses each new action against that. The detection logic is closer to a human reviewer's than to pattern matching against examples it has been trained to spot. For example, if your e-commerce agent starts resetting user passwords that isn't going to appear in any training dataset, but this is a risk you should be flagging. This is where you get the meaningful security uplift that allows you to use agentic AI with confidence, and it's exactly why we made Adrian.
+
 
 ## Architecture
 
