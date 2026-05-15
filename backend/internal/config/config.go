@@ -64,10 +64,10 @@ func Load() (*Config, error) {
 	}
 	cfg.SlidingWindowTTL = windowTTL
 
-	if cfg.LLMURL == "" || cfg.LLMAPIKey == "" || cfg.LLMModel == "" || cfg.LLMModelPath == "" {
+	if cfg.LLMURL != "" && (cfg.LLMAPIKey == "" || cfg.LLMModel == "" || cfg.LLMModelPath == "") {
 		return nil, errors.New(
-			"ADRIAN_LLM_URL, ADRIAN_LLM_API_KEY, ADRIAN_LLM_MODEL, and " +
-				"ADRIAN_LLM_MODEL_PATH must all be set " +
+			"when ADRIAN_LLM_URL is set, ADRIAN_LLM_API_KEY, ADRIAN_LLM_MODEL, and " +
+				"ADRIAN_LLM_MODEL_PATH must also be set " +
 				"(run `adrian-setup bootstrap --gguf <name>`)",
 		)
 	}
