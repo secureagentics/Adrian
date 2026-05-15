@@ -12,7 +12,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue.svg" alt="Licence" /></a>
   <a href="https://app.adrian.secureagentics.ai/"><img src="https://img.shields.io/badge/Dashboard-Sign%20Up-22C55E" alt="Dashboard" /></a>  
-  <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian.svg" alt="PyPI" /></a>
+  <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian-sdk.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/6nmJ9k3u6"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
 </p>
