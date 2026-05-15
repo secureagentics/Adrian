@@ -20,9 +20,21 @@ import (
 	"github.com/secureagentics/Adrian/backend/internal/auth"
 	"github.com/secureagentics/Adrian/backend/internal/config"
 	"github.com/secureagentics/Adrian/backend/internal/engine"
+	pb "github.com/secureagentics/Adrian/backend/internal/proto"
 	"github.com/secureagentics/Adrian/backend/internal/store"
 	"github.com/secureagentics/Adrian/backend/internal/ws"
 )
+
+// stubClassifier returns a fixed M0/benign verdict and a no-op Ping.
+// The API tests need a Classifier to construct the server but don't
+// exercise the engine itself.
+type stubClassifier struct{}
+
+func (stubClassifier) Classify(_ context.Context, _ *pb.PairedEvent, _ string) (*engine.Verdict, error) {
+	return &engine.Verdict{MADCode: "M0", Classification: "benign"}, nil
+}
+
+func (stubClassifier) Ping(_ context.Context) error { return nil }
 
 // -----------------------------------------------------------------
 // Readiness
@@ -454,7 +466,7 @@ func newTestServerWithHub(t *testing.T) (*httptest.Server, *sql.DB, *ws.Hub, str
 		t.Fatalf("seed admin: %v", err)
 	}
 	hub := ws.NewHub()
-	srv := httptest.NewServer(api.NewServer(cfg, db, st, engine.NewStub("", ""), hub, ws.NewConnRegistry(), nil))
+	srv := httptest.NewServer(api.NewServer(cfg, db, st, stubClassifier{}, hub, ws.NewConnRegistry(), nil))
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { _ = db.Close() })
 	cookie := loginAndGetCookie(t, srv, plaintext)
@@ -1080,8 +1092,7 @@ func newTestServerWithMustChange(t *testing.T, mustChange bool) (*httptest.Serve
 	); err != nil {
 		t.Fatalf("seed admin: %v", err)
 	}
-	classifier := engine.NewStub("", "")
-	srv := httptest.NewServer(api.NewServer(cfg, db, st, classifier, ws.NewHub(), ws.NewConnRegistry(), nil))
+	srv := httptest.NewServer(api.NewServer(cfg, db, st, stubClassifier{}, ws.NewHub(), ws.NewConnRegistry(), nil))
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { _ = db.Close() })
 	return srv, db, plaintext, ""

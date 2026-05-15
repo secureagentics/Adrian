@@ -4,8 +4,8 @@
 // Adrian backend entrypoint.
 //
 // Loads config, opens the SQLite database (running idempotent
-// migrations), constructs the API server with the stub classifier,
-// and listens on ADRIAN_BACKEND_PORT until SIGTERM.
+// migrations), constructs the API server with the LLM-backed
+// classifier, and listens on ADRIAN_BACKEND_PORT until SIGTERM.
 package main
 
 import (
@@ -79,18 +79,12 @@ func main() {
 	})
 	go window.Sweep(ctx, 5*time.Minute, windowTTL)
 
-	var classifier engine.Classifier
-	if cfg.LLMURL != "" {
-		classifier = engine.NewHTTPClient(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, window, st)
-		slog.Info("engine.http_client.wired",
-			"url", cfg.LLMURL, "model", cfg.LLMModel,
-			"window_size", cfg.SlidingWindowSize,
-			"window_ttl_seconds", cfg.SlidingWindowTTL,
-		)
-	} else {
-		classifier = engine.NewStub(cfg.LLMURL, cfg.LLMModelPath)
-		slog.Info("engine.stub.wired", "model_path", cfg.LLMModelPath)
-	}
+	classifier := engine.NewHTTPClient(cfg.LLMURL, cfg.LLMAPIKey, cfg.LLMModel, window, st)
+	slog.Info("engine.http_client.wired",
+		"url", cfg.LLMURL, "model", cfg.LLMModel,
+		"window_size", cfg.SlidingWindowSize,
+		"window_ttl_seconds", cfg.SlidingWindowTTL,
+	)
 
 	// Discord notification dispatcher: a single goroutine consumes
 	// verdicts and fans out to enabled webhooks. The WS handler sends
