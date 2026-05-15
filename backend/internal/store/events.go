@@ -219,7 +219,7 @@ func eventsWhere(f EventFilters) (string, []any) {
 	}
 	if f.EventType != "" {
 		parts = append(parts, "e.event_type = ?")
-		args = append(args, f.EventType)
+		args = append(args, normaliseEventTypeFilter(f.EventType))
 	}
 	if tiers := tiersAtOrAbove(f.MinMAD); len(tiers) > 0 {
 		// EXISTS keeps the existing single-row-per-event shape; an
@@ -234,6 +234,17 @@ func eventsWhere(f EventFilters) (string, []any) {
 		}
 	}
 	return strings.Join(parts, " AND "), args
+}
+
+func normaliseEventTypeFilter(v string) string {
+	switch strings.ToUpper(v) {
+	case "LLM", "EVENT_TYPE_LLM":
+		return "EVENT_TYPE_LLM"
+	case "TOOL", "EVENT_TYPE_TOOL":
+		return "EVENT_TYPE_TOOL"
+	default:
+		return v
+	}
 }
 
 // tiersAtOrAbove returns the M-tier prefixes >= floor. Floor of "M3"
