@@ -222,12 +222,15 @@ func eventsWhere(f EventFilters) (string, []any) {
 		args = append(args, f.EventType)
 	}
 	if tiers := tiersAtOrAbove(f.MinMAD); len(tiers) > 0 {
-		// EXISTS keeps the existing single-row-per-event shape; an
-		// event can in principle have multiple verdicts (re-classify),
-		// any one matching is enough to surface.
+		// Match the latest verdict per event so the filter stays in
+		// sync with what GetVerdictByEventID / SessionTimeline return
+		// to the dashboard. Without the MAX(created_at) constraint a
+		// re-classify with an older M3 verdict would surface an event
+		// whose displayed verdict is M0.
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(tiers)), ",")
 		parts = append(parts, "EXISTS (SELECT 1 FROM verdicts v "+
 			"WHERE v.event_id = e.id "+
+			"AND v.created_at = (SELECT max(v2.created_at) FROM verdicts v2 WHERE v2.event_id = e.id) "+
 			"AND substr(v.mad_code, 1, 2) IN ("+placeholders+"))")
 		for _, t := range tiers {
 			args = append(args, t)

@@ -857,6 +857,89 @@ func TestSessionTimeline(t *testing.T) {
 }
 
 // -----------------------------------------------------------------
+// Events list filtering
+// -----------------------------------------------------------------
+
+// TestEventsMinMADFilterUsesLatestVerdict asserts the severity filter
+// matches on each event's latest verdict only. An event re-classified
+// from M3 to M0 must not surface under M3+. Regression for the bug
+// where the EXISTS clause accepted any historical verdict.
+func TestEventsMinMADFilterUsesLatestVerdict(t *testing.T) {
+	srv, db, _, cookie := newTestServerLoggedIn(t)
+
+	const sid = "sess-min-mad"
+
+	// Event A: older M3.a, newer M0 -> displayed as M0, must NOT
+	// appear under M3+ or M2+.
+	eA := uuid.NewString()
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-a', 'tool', 'r1', '{}')`,
+		eA, sid,
+	); err != nil {
+		t.Fatalf("seed event A: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, created_at)
+		 VALUES (?, ?, ?, 'M3.a', 'block',  datetime('now', '-2 seconds')),
+		        (?, ?, ?, 'M0',   'benign', datetime('now', '-1 seconds'))`,
+		uuid.NewString(), eA, sid,
+		uuid.NewString(), eA, sid,
+	); err != nil {
+		t.Fatalf("seed verdicts A: %v", err)
+	}
+
+	// Event B: older M0, newer M3.a -> displayed as M3.a, must appear
+	// under M3+. Locks in that the filter still surfaces legitimately
+	// flagged events.
+	eB := uuid.NewString()
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-b', 'tool', 'r2', '{}')`,
+		eB, sid,
+	); err != nil {
+		t.Fatalf("seed event B: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, created_at)
+		 VALUES (?, ?, ?, 'M0',   'benign', datetime('now', '-2 seconds')),
+		        (?, ?, ?, 'M3.a', 'block',  datetime('now', '-1 seconds'))`,
+		uuid.NewString(), eB, sid,
+		uuid.NewString(), eB, sid,
+	); err != nil {
+		t.Fatalf("seed verdicts B: %v", err)
+	}
+
+	// min_mad=M3 should surface event B only.
+	resp := getReq(t, srv, cookie, "/api/events?session_id="+sid+"&min_mad=M3")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	data := decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 {
+		t.Errorf("min_mad=M3 total = %v, want 1 (only event B)", data["total"])
+	}
+	events := data["events"].([]any)
+	if len(events) != 1 || events[0].(map[string]any)["id"] != eB {
+		t.Errorf("min_mad=M3 events = %v, want only event B (id %q)", events, eB)
+	}
+
+	// min_mad=M2 should also surface event B only (event A's latest is M0).
+	resp = getReq(t, srv, cookie, "/api/events?session_id="+sid+"&min_mad=M2")
+	data = decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 {
+		t.Errorf("min_mad=M2 total = %v, want 1", data["total"])
+	}
+
+	// No filter should return both events.
+	resp = getReq(t, srv, cookie, "/api/events?session_id="+sid)
+	data = decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 2 {
+		t.Errorf("no-filter total = %v, want 2", data["total"])
+	}
+}
+
+// -----------------------------------------------------------------
 // MCP servers
 // -----------------------------------------------------------------
 
