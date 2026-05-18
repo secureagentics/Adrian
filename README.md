@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue.svg" alt="Licence" /></a>
-  <a href="https://app.adrian.secureagentics.ai/"><img src="https://img.shields.io/badge/Dashboard-Sign%20Up-22C55E" alt="Dashboard" /></a>  
+  <a href="https://app.adrian.secureagentics.ai/"><img src="https://img.shields.io/badge/Dashboard-Sign%20Up-22C55E" alt="Dashboard" /></a>
   <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian-sdk.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/6nmJ9k3u6"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
@@ -55,16 +55,26 @@ The fastest way to try Adrian is the managed dashboard at [app.adrian.secureagen
 
    <sup>Last verified with `langchain-core==1.3.3`, `langgraph==1.1.2`, `langchain-openai==1.2.1` (2026-05-08).</sup>
 
-5. Wrap your LangChain agent. The whole integration is a two-line attach:
+5. Wrap your LangChain agent. Two lines of Adrian (`init` + `shutdown`) bracket your normal LangChain / LangGraph code:
 
    ```python
+   import asyncio
    import adrian
-   adrian.init(api_key="adr_live_...")
+   from langchain_openai import ChatOpenAI
 
-   # Your LangChain / LangGraph code runs normally; every call is captured.
+   async def main():
+       adrian.init(api_key="adr_live_...")
+       llm = ChatOpenAI(model="gpt-4o")
+       response = await llm.ainvoke(
+           "Find the most underpriced recent IPOs and build an investment strategy",
+       )
+       print(response.content)
+       adrian.shutdown()
+
+   asyncio.run(main())
    ```
 
-   Full runnable async example at [`examples/quickstart.py`](examples/quickstart.py), with a demo agent you can swap for your own.
+   Full runnable version (with env-var checks) at [`examples/quickstart.py`](examples/quickstart.py).
 
 6. Run your agent. Events appear in the dashboard within seconds, classified by severity.
 
