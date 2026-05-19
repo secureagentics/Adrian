@@ -136,6 +136,23 @@ func (s *Store) GetAgent(ctx context.Context, agentID string) (*AgentRow, []*Age
 		`SELECT
 		     a.id, a.first_seen, a.last_seen,
 		     COALESCE(
+		         (SELECT count(*) FROM events e WHERE e.agent_id = a.agent_id),
+		         0
+		     ) AS event_count,
+		     COALESCE(
+		         (SELECT v.mad_code FROM verdicts v
+		          JOIN events e ON e.id = v.event_id
+		          WHERE e.agent_id = a.agent_id
+		          ORDER BY CASE
+		              WHEN v.mad_code LIKE 'M4%' THEN 1
+		              WHEN v.mad_code LIKE 'M3%' THEN 2
+		              WHEN v.mad_code LIKE 'M2%' THEN 3
+		              ELSE 4
+		          END, v.created_at DESC
+		          LIMIT 1),
+		         ''
+		     ) AS worst_mad,
+		     COALESCE(
 		         (SELECT e.agent_profile_id FROM events e
 		          WHERE e.agent_id = a.agent_id AND e.agent_profile_id IS NOT NULL
 		          ORDER BY e.created_at DESC
@@ -155,7 +172,11 @@ func (s *Store) GetAgent(ctx context.Context, agentID string) (*AgentRow, []*Age
 		 FROM agents a
 		 WHERE a.agent_id = ?`,
 		agentID,
-	).Scan(&r.ID, &firstSeen, &lastSeen, &r.AgentProfileID, &r.AgentProfileName)
+	).Scan(
+		&r.ID, &firstSeen, &lastSeen,
+		&r.EventCount, &r.WorstMAD,
+		&r.AgentProfileID, &r.AgentProfileName,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, ErrNotFound
