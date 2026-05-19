@@ -15,7 +15,6 @@
   <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian-sdk.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/6nmJ9k3u6"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
-  <a href="https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736" target="_blank" rel="nofollow"><img src="https://media.theresanaiforthat.com/social/icon_full.svg" alt="Featured on TAAFT" height="24" /></a>
 </p>
 
 ---
@@ -208,3 +207,7 @@ Adrian is released under the [Apache 2.0 licence](LICENSE). New source files sho
 
 - [Discord](https://discord.gg/6nmJ9k3u6) for chat with the team and other Adrian users
 - [LinkedIn](https://www.linkedin.com/company/secure-agentics) for product updates
+
+## Featured on
+
+<a href="https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736" target="_blank" rel="nofollow"><img src="https://media.theresanaiforthat.com/social/icon_full.svg" alt="Featured on TAAFT"></a>
