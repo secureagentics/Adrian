@@ -210,4 +210,4 @@ Adrian is released under the [Apache 2.0 licence](LICENSE). New source files sho
 
 ## Featured on
 
-<a href="https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736" target="_blank" rel="nofollow"><img src="https://media.theresanaiforthat.com/social/icon_full.svg" alt="Featured on TAAFT"></a>
+- [There's An AI For That](https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736) <a href="https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736" target="_blank" rel="nofollow"><img src="https://media.theresanaiforthat.com/social/icon_full.svg" alt="Featured on TAAFT" height="25"></a>
