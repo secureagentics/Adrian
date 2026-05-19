@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -88,12 +89,17 @@ func (s *Store) DeleteWebhook(ctx context.Context, id string) error {
 // re-shows the full URL after the paste-once flow.
 func MaskedURL(u string) string {
 	const visibleSuffix = 8
-	if len(u) <= visibleSuffix+10 {
+	lastSlash := strings.LastIndex(u, "/")
+	if lastSlash == -1 || lastSlash == len(u)-1 {
 		return u
 	}
-	// Keep the host + the leading webhook path, mask the token tail.
+	token := u[lastSlash+1:]
+	if len(token) > visibleSuffix {
+		token = token[len(token)-visibleSuffix:]
+	}
+	// Keep the host + the leading webhook path, mask only the token.
 	// Discord shape: https://discord.com/api/webhooks/<id>/<token>
-	return u[:len(u)-visibleSuffix-12] + "...***" + u[len(u)-visibleSuffix:]
+	return u[:lastSlash+1] + "...***" + token
 }
 
 // ErrInvalidWebhookURL is returned by the handler when the user-supplied
