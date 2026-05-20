@@ -52,6 +52,7 @@ To accept this Agreement, open a pull request that adds an entry to the table be
 
 | Full name (or public name) | GitHub handle | Date (YYYY-MM-DD) |
 |---|---|---|
-| _Dhrit Timinkumar Patel_ | _@d180_ | _2026-05-20_ |
+| _example placeholder_ | _@example_ | _2026-01-01_ |
+| Dhrit Timinkumar Patel | @d180 | 2026-05-20 |
 
 Once a CLA-bot (cla-assistant.io or equivalent) is wired up, this manual table will be replaced by the bot's status check on each pull request. Existing signatures in this table remain valid; the bot reads from a separate signers list.
