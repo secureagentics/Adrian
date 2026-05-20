@@ -672,11 +672,8 @@ func TestListAndDeleteWebhooks(t *testing.T) {
 		t.Fatalf("webhooks = %d, want 1", len(hooks))
 	}
 	masked := hooks[0].(map[string]any)["webhook_url_masked"].(string)
-	if !strings.HasPrefix(masked, "https://discord.com/api/webhooks/") {
-		t.Errorf("masked url should keep the discord prefix, got %q", masked)
-	}
-	if strings.Contains(masked, "long-secret-token") {
-		t.Errorf("masked url should not contain the full token, got %q", masked)
+	if masked != "https://discord.com/api/webhooks/999/...***en-12345" {
+		t.Errorf("masked url = %q, want exact token-only masking", masked)
 	}
 
 	// Delete it.
