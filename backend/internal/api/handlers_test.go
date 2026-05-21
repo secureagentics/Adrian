@@ -776,13 +776,6 @@ func TestGetAgent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed events: %v", err)
 	}
-	if _, err := db.Exec(
-		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification)
-		 VALUES (?, (SELECT id FROM events WHERE agent_id = 'agent-c' AND session_id = 'sess-c2' LIMIT 1), 'sess-c2', 'M4', 'block')`,
-		uuid.NewString(),
-	); err != nil {
-		t.Fatalf("seed verdict: %v", err)
-	}
 
 	resp := getReq(t, srv, cookie, "/api/agents/agent-c")
 	if resp.StatusCode != http.StatusOK {
@@ -793,11 +786,11 @@ func TestGetAgent(t *testing.T) {
 	if data["agent_id"] != "agent-c" {
 		t.Errorf("agent_id = %v, want agent-c", data["agent_id"])
 	}
-	if int(data["event_count"].(float64)) != 3 {
-		t.Errorf("event_count = %v, want 3", data["event_count"])
+	if _, ok := data["event_count"]; ok {
+		t.Errorf("event_count unexpectedly present in detail response")
 	}
-	if data["worst_mad"] != "M4" {
-		t.Errorf("worst_mad = %v, want M4", data["worst_mad"])
+	if _, ok := data["worst_mad"]; ok {
+		t.Errorf("worst_mad unexpectedly present in detail response")
 	}
 	sessions := data["sessions"].([]any)
 	if len(sessions) != 2 {
