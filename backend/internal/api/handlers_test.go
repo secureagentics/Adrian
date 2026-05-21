@@ -783,6 +783,12 @@ func TestGetAgent(t *testing.T) {
 	if data["agent_id"] != "agent-c" {
 		t.Errorf("agent_id = %v, want agent-c", data["agent_id"])
 	}
+	if _, ok := data["event_count"]; ok {
+		t.Errorf("event_count unexpectedly present in detail response")
+	}
+	if _, ok := data["worst_mad"]; ok {
+		t.Errorf("worst_mad unexpectedly present in detail response")
+	}
 	sessions := data["sessions"].([]any)
 	if len(sessions) != 2 {
 		t.Fatalf("sessions = %d, want 2", len(sessions))
