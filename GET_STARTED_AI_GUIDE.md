@@ -1,10 +1,353 @@
-# Adrian — AI Agent Onboarding Guide
+# Adrian — AI Agent Setup Guide
 
-> **Audience: AI coding assistants (Claude, Cursor, GitHub Copilot Chat, Windsurf, Aider, ChatGPT, etc.) helping a human developer integrate Adrian into a LangChain / LangGraph application.**
+> **For human developers:** drop this file into your AI assistant's context (Claude, Codex, Cursor, Aider, Windsurf, Copilot Chat, ChatGPT, etc.) and ask it to set up Adrian. The agent walks you through a 60-second flow: API key → install → first event in the dashboard. Everything below **Part 1** is reference material the agent reads when something goes wrong.
 >
-> This file is a self-contained briefing. Drop it into the context window (or attach it to a coding agent) and the agent should be able to install, configure, and troubleshoot Adrian end-to-end without further reading.
+> **For AI agents:** if a user has just pointed you at this file (or at `github.com/secureagentics/Adrian`) and asked for help setting up, execute **Part 1** below in order. Don't skim. Don't suggest a different flow. The single success criterion is "first event visible in the dashboard within 60 seconds". Treat Part 2 as a lookup index for failure modes.
 
 ---
+
+# PART 1 — 60-Second Setup Flow (executable)
+
+> **AI agent: this section is a program, not documentation. Run it top-to-bottom. Branch only at the marked decision points. If a step fails, jump to the matching subsection in Part 2 and resume.**
+
+## Step 0 — Confirm preconditions (5 seconds)
+
+Run these checks silently (don't ask the user to type them). Either you can shell out yourself, or you ask the user to confirm.
+
+| Requirement | How to check |
+|---|---|
+| Python ≥ 3.12 | `python3 --version` |
+| pip available | `python3 -m pip --version` |
+| A working directory | `pwd` (any folder; we'll write one or two files here) |
+| Network access to PyPI + `app.adrian.secureagentics.ai` | implicit; flag if obviously blocked |
+
+If Python < 3.12, stop and ask the user to install 3.12 (or use `pyenv install 3.12`). Don't proceed — the SDK declares `requires-python = ">=3.12"` and will fail to install.
+
+## Step 1 — Get the user's Adrian API key (15 seconds)
+
+This step has three substeps. Don't skip the verification at the end — Steps 3 and 4 assume you've already confirmed a valid key is in place.
+
+### 1.1 Walk the user through generating the key
+
+Tell the user this, click-by-click. Don't paraphrase — the user is on a 60-second clock and a sentence-long "go get a key" leaves them hunting menus.
+
+> 1. Open **https://app.adrian.secureagentics.ai** in your browser.
+> 2. Click **Sign up** (top right) and choose Google, Microsoft, or GitHub SSO. About 30 seconds.
+> 3. Once you're in the dashboard, go to **Settings → Agents** (left sidebar).
+> 4. Click **New key**. Give it any label (e.g. "60-second setup") and click **Generate**.
+> 5. Copy the key. It starts with `adr_live_…`. The dashboard shows it **once** — if you close the modal without copying, you'll need to issue a new one.
+> 6. Tell me when you have it.
+
+Wait for the user to indicate they have the key. Don't proceed without that confirmation.
+
+### 1.2 Recommend the secure path (.env file), and offer to accept a paste as a fallback
+
+Default flow — what you should ask for first:
+
+> Recommended: create a file called `.env` in your project directory with this one line, then save it:
+>
+> ```
+> ADRIAN_API_KEY=adr_live_…
+> ```
+>
+> (Replace `adr_live_…` with the key you just copied.) When you've saved the file, type **done** and I'll verify it.
+
+If the user follows this path → go to 1.3 ("verification of .env").
+
+If the user pastes the key directly into chat instead (this happens often) → accept it gracefully. Don't refuse. But switch behaviour:
+
+- **Do not try to silently write it to `.env`.** Many agents can't write arbitrary files (Codex web, ChatGPT, Cursor in restricted mode), and even agents that can may not survive a context reload to remember the file path. The user's shell may also have already loaded a stale `.env`. Trying to "help" here usually creates a confusing mismatch between what's in the file and what the running shell sees.
+- **Instead, plan to hardcode the key into the script you write in Step 3.** When you reach Step 3A, change `adrian.init()` to `adrian.init(api_key="adr_live_…")` with the actual key. For Step 3B, do the same patch in their file.
+- **Warn the user explicitly, in the message where you confirm receipt of the key:**
+  > Got it. I'm going to put this key directly into the code I write so it runs straight away. Before you commit that file to git or share it with anyone, replace the hardcoded key with `os.environ["ADRIAN_API_KEY"]` and move the actual value into a `.env` file that's gitignored. I'll mark the line with a `# TODO` comment so you can find it.
+
+Go to 1.3 ("verification of paste").
+
+**One rule that applies to both paths:** never echo the full key back in any later message. Refer to it as `adr_live_…` from here on. If you need to mention it in a log line, redact past the prefix.
+
+### 1.3 Verify before moving on
+
+This is a hard gate. Step 2 starts only after one of the following is true.
+
+**If the user said "done" (the .env path):**
+
+1. Confirm `.env` exists in the current working directory. If your client can read files, read it and check. If not, ask the user:
+   > Quick check — can you run `cat .env` (or `type .env` on Windows) and paste the output? I want to make sure the key landed correctly.
+2. Confirm the line `ADRIAN_API_KEY=…` is present and the value:
+   - Starts with `adr_live_` (managed cloud) or `adr_local_` (self-hosted).
+   - Has no surrounding quotes — `ADRIAN_API_KEY="adr_live_xxx"` works in most shells but tripped some users; if you see quotes, ask the user to remove them.
+   - Has no surrounding whitespace — a trailing space is a common paste artifact and will fail the auth check silently later.
+3. If the format is wrong, point at the exact issue and ask the user to fix it. Most common: the key was truncated during copy (Discord and Slack sometimes trim long strings on send-from-mobile).
+4. If everything looks good, tell the user:
+   > Key verified in `.env`. I'll read it from the environment in the code I'm about to write.
+
+**If the user pasted the key (the chat-paste path):**
+
+1. Confirm the pasted value matches `^adr_(live|local)_[0-9a-f]+$`. If not, ask the user to re-copy from the dashboard — they probably grabbed the prefix or a nearby string by mistake.
+2. Store the key in your working memory for this session only. **Do not write it to disk yet** — you'll embed it in the script in Step 3.
+3. Tell the user (do not include the key value):
+   > Key received. Format looks valid. Moving on — I'll embed it into the script with a `# TODO: move to .env` marker.
+
+Once either verification passes, set an internal flag the rest of this flow checks:
+
+- `key_source = "env"` → in Steps 3A and 3B, leave `adrian.init()` argument-less and rely on `ADRIAN_API_KEY` from the environment.
+- `key_source = "paste"` → in Steps 3A and 3B, generate `adrian.init(api_key="adr_live_…")` with the literal value and add a `# TODO: move to a .env file before committing` comment above the line.
+
+## Step 2 — Decision point: test agent or own agent? (5 seconds)
+
+Ask the user this question. Use whichever tool you have:
+
+- **If you have a structured question tool** (e.g. Claude's `AskUserQuestion`): use it with the two options below.
+- **If you don't** (Codex, Aider, plain chat): ask in chat and wait for "a" or "b" or the option name.
+
+> Two ways to see Adrian in action:
+>
+> **(A) Test agent** — I write a tiny LangChain script, run it, and you watch the event appear in the dashboard. Fastest. Needs an `OPENAI_API_KEY` (or I can use a fake LLM if you don't have one).
+>
+> **(B) Your agent** — Tell me the path to your existing LangChain / LangGraph file and I add two lines so Adrian instruments it. Then run your agent as you normally would.
+
+Branch on the answer.
+
+## Step 3A — Test agent path (35 seconds)
+
+**Substep 3A.1 — OpenAI key check.** Ask: "Do you have an `OPENAI_API_KEY`?" Three branches:
+
+- **Yes, in env** → continue to 3A.2.
+- **Yes, has the value** → write it into the same `.env` (`OPENAI_API_KEY=sk-…`) and continue.
+- **No** → use the FakeChatModel script at the end of this section instead of the OpenAI one. Continue to 3A.2.
+
+**Substep 3A.2 — Create venv and install.** Run, in the user's working directory:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate            # on Windows: .venv\Scripts\activate
+pip install adrian-sdk langchain-openai
+```
+
+If `pip install` exits non-zero, jump to Part 2 §12.
+
+**Substep 3A.3 — Write the smoke-test script.** Create `adrian_quickstart.py` in the working directory. **The exact code depends on the `key_source` you set in Step 1.3** — pick the matching variant.
+
+#### Variant A — `key_source = "env"` (user saved the key to `.env`)
+
+```python
+"""Adrian 60-second smoke test."""
+import asyncio
+import os
+import sys
+import adrian
+from langchain_openai import ChatOpenAI
+
+
+async def main() -> int:
+    if not os.environ.get("ADRIAN_API_KEY"):
+        sys.exit("ADRIAN_API_KEY missing. Did you source your .env? "
+                 "Try: set -a; . ./.env; set +a")
+    if not os.environ.get("OPENAI_API_KEY"):
+        sys.exit("OPENAI_API_KEY missing. Set it in your shell or .env.")
+
+    adrian.init()  # reads ADRIAN_API_KEY from env automatically
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = await llm.ainvoke("In one sentence, why is the sky blue?")
+    print("LLM said:", response.content)
+    adrian.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
+```
+
+#### Variant B — `key_source = "paste"` (user pasted the key into chat)
+
+Substitute the literal key the user pasted in place of `adr_live_REPLACE_ME` on the marked line. **Keep the TODO comment** — the user explicitly opted into the convenience trade-off and the comment is the audit trail.
+
+```python
+"""Adrian 60-second smoke test."""
+import asyncio
+import os
+import sys
+import adrian
+from langchain_openai import ChatOpenAI
+
+
+async def main() -> int:
+    # TODO: move this key to a .env file before committing this script.
+    # Replace the literal with os.environ["ADRIAN_API_KEY"] and put
+    # ADRIAN_API_KEY=adr_live_... in .env (which should be gitignored).
+    ADRIAN_API_KEY = "adr_live_REPLACE_ME"
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        sys.exit("OPENAI_API_KEY missing. Set it in your shell or .env.")
+
+    adrian.init(api_key=ADRIAN_API_KEY)
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = await llm.ainvoke("In one sentence, why is the sky blue?")
+    print("LLM said:", response.content)
+    adrian.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
+```
+
+#### FakeChatModel fallback (no OpenAI key)
+
+Use this *instead* of the variant above if the user has no `OPENAI_API_KEY`. Pick the env / paste flavour to match `key_source` (only the `adrian.init` line differs):
+
+```python
+"""Adrian 60-second smoke test (no LLM provider needed)."""
+import asyncio
+import os
+import sys
+import adrian
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+
+async def main() -> int:
+    # env variant:
+    adrian.init()
+    # paste variant (replace with the literal key):
+    # adrian.init(api_key="adr_live_REPLACE_ME")  # TODO: move to .env
+
+    llm = FakeListChatModel(responses=["The sky is blue because of Rayleigh scattering."])
+    out = await llm.ainvoke("In one sentence, why is the sky blue?")
+    print("Fake LLM said:", out.content)
+    adrian.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
+```
+
+**Substep 3A.4 — Run it.** Run from the same shell that has the venv active. The command depends on `key_source`:
+
+- **`key_source = "env"`** — source `.env` first so `ADRIAN_API_KEY` (and `OPENAI_API_KEY`, if applicable) are in the process environment:
+  ```sh
+  set -a; . ./.env; set +a
+  python adrian_quickstart.py
+  ```
+- **`key_source = "paste"`** — the Adrian key is already inlined in the script. You still need `OPENAI_API_KEY` in the shell (unless you used the FakeChatModel variant):
+  ```sh
+  export OPENAI_API_KEY=sk-...   # skip if using FakeChatModel
+  python adrian_quickstart.py
+  ```
+
+Expected output: a log line `Adrian v1.0.0 initialised (handlers=2, ws=ws://localhost:8080/ws)` (or the managed cloud's WS URL once configured), followed by the LLM's response. If you see `Adrian v…` you've already won — the event is on its way.
+
+If the WS URL still says `ws://localhost:8080/ws` and the user is on managed (not self-hosted), they need `ADRIAN_WS_URL` set to the URL the dashboard tells them to use. Add it to `.env` and re-run. Don't make this a blocker for the smoke test — the local JSONL handler is still writing `events.jsonl` next to the script so the user has something tangible immediately.
+
+**Substep 3A.5 — Direct to dashboard.** Tell the user:
+
+> Open **https://app.adrian.secureagentics.ai/events** — your event should be there within 2-3 seconds, classified as benign (M0).
+
+Then go to Step 4.
+
+## Step 3B — Own agent path (35 seconds)
+
+**Substep 3B.1 — Get the file.** Ask:
+
+> What's the path to the LangChain or LangGraph agent file you want to instrument? (Absolute path, or relative to the current directory.)
+
+Read the file. If it's a directory, ask which file inside. If it's not Python, stop and explain Adrian's SDK is Python-only (LangChain/LangGraph).
+
+**Substep 3B.2 — Validate the file.** Check three things:
+
+1. Does it import from `langchain_*` or `langgraph`? If neither, this file isn't a LangChain agent — stop and tell the user.
+2. Does it have an `async def` somewhere (the agent entry)? Look for the function that calls `await ...ainvoke(...)` or `await ...astream(...)`.
+3. Does it use **sync** `.invoke()` instead of `.ainvoke()`? If yes, warn:
+   > Heads-up: your agent uses the sync `.invoke()` path. Adrian will still capture events for logging, but Block / Human Review gating only fires on the async path (`ainvoke` / `astream`). If you want in-flight tool blocking later, you'll need to convert to async.
+   Continue anyway — capture works either way.
+
+**Substep 3B.3 — Identify the patch site.** The patch is two insertions, and the second one differs based on the `key_source` flag set in Step 1.3.
+
+1. **Imports block at the top of the file:** add `import adrian`. Add `import os` too if `os` isn't already imported (only needed for the env variant below).
+
+2. **Entry function — first statement inside the `async def`.** Find the function the user runs as the agent's entry point. This is usually the `async def main():` (or similar) that's called from `asyncio.run(main())`. Insert one of the two variants below as the first statement inside that function.
+
+   #### Variant A — `key_source = "env"` (user has `.env` set up)
+
+   ```python
+       adrian.init(api_key=os.environ["ADRIAN_API_KEY"])
+   ```
+
+   The user is responsible for sourcing `.env` before running their agent. If they already use `python-dotenv` or `direnv`, this just works. If they don't, mention it: "Source your `.env` before running with `set -a; . ./.env; set +a`."
+
+   #### Variant B — `key_source = "paste"` (user pasted the key directly)
+
+   ```python
+       # TODO: move this key to a .env file before committing this script.
+       # Replace the literal below with os.environ["ADRIAN_API_KEY"] and put
+       # ADRIAN_API_KEY=adr_live_... in .env (gitignored).
+       adrian.init(api_key="adr_live_REPLACE_ME")
+   ```
+
+   Substitute `adr_live_REPLACE_ME` with the actual key the user pasted. **Keep the comment block** — the user opted into the convenience trade-off and the comment makes the eventual cleanup trivial to find with `grep -rn 'TODO.*\.env'`.
+
+You do **not** need to add `adrian.shutdown()` — the SDK registers it via `atexit` automatically. (You can still add it before a clean `return` if the agent runs forever and you want explicit teardown.)
+
+**Sync-only agents:** if there's no `async def` and the agent is fully sync, put the same `adrian.init(...)` line once at module import time (after the imports block, before any LangChain object is constructed). Pick the env or paste variant the same way. Sync mode still captures events; it just doesn't gate tool calls.
+
+**Substep 3B.4 — Show the diff before applying.** Print the patched file as a unified diff and ask the user to confirm before writing. (Skip this step if your client doesn't support arbitrary file writes — paste the patched code and tell the user to save it.)
+
+**Substep 3B.5 — Install the SDK in the user's existing environment.** Detect what they're using:
+
+- Plain venv → `pip install adrian-sdk`
+- Poetry → `poetry add adrian-sdk`
+- uv → `uv add adrian-sdk` (or `uv pip install adrian-sdk` in legacy projects)
+- Conda → `pip install adrian-sdk` inside the activated env
+- Requirements file → append `adrian-sdk` to `requirements.txt`, run `pip install -r requirements.txt`
+
+If you can't tell, ask the user once: "What package manager does this project use?"
+
+**Substep 3B.6 — Run their agent.** Tell the user:
+
+> Now run your agent as you normally would. Adrian's instrumentation captures every LLM call and tool call automatically — you don't need to change how you invoke the agent.
+
+Then go to Step 4.
+
+## Step 4 — Verify in the dashboard (5 seconds)
+
+Tell the user:
+
+> Open **https://app.adrian.secureagentics.ai/events**. Within a couple of seconds you should see one or more events listed — each is one LLM call or tool call your agent made, with a classification badge (M0 benign, M2 misuse, M3 high-risk, M4 malicious). Most first runs are all M0.
+
+If nothing shows up in 10 seconds, jump to Part 2 §12 ("Common failure modes") and walk the user through the relevant entry.
+
+## Step 5 — Offer the next obvious step (10 seconds)
+
+After the user confirms they see events, offer one of these as a natural next step (don't force it; just one sentence each):
+
+- **"Want Adrian to actually block dangerous tool calls?"** → flip the agent profile to Block mode (Settings → Agents). Requires the async path.
+- **"Want a Discord alert when a tool call gets flagged?"** → Settings → Webhooks → New, paste a Discord webhook URL, choose alert type `M3` / `M4` / `all`.
+- **"Want to tell Adrian what your agent is supposed to do (its remit), so misuse classification is more accurate?"** → Settings → Agents → edit the profile, fill in remit + expected behaviours + known risks.
+
+Then stop. Setup is done. The rest of this file is reference for when something goes wrong.
+
+---
+
+## Cross-client compatibility notes
+
+| Agent | Multi-choice tool | File write | Shell execution | Special quirks |
+|---|---|---|---|---|
+| **Claude Code** (CLI) | none — ask in chat | Edit/Write tools | Bash tool | Sync via Edit; preserves diffs cleanly |
+| **Claude Desktop** (Cowork) | `AskUserQuestion` | Edit/Write tools | sandboxed bash | Prefer `.env` for the API key — chat persists |
+| **Codex CLI** | none — ask in chat | direct edit | shell exec | Codex defaults to streaming edits; show diff first |
+| **Codex web / ChatGPT** | none — ask in chat | offer code blocks | none | Tell the user to save / run; you can't execute |
+| **Cursor** chat | none — ask in chat | Composer can write | terminal panel | Composer multi-file edits work for own-agent path |
+| **Aider** | none — ask in chat | yes (its model) | shell exec | Map files into the session before patching |
+| **Windsurf / Copilot Chat** | none — ask in chat | varies | varies | Treat as Codex-equivalent |
+
+If your client supports it, prefer:
+- A structured multi-choice question over a free-text "type a or b". Reduces parse errors.
+- Showing a diff before writing patched code (own-agent path) over a silent write. Users want a chance to bail.
+- Reading `.env` once and not echoing the key back over re-reading it in every step. Reduces leak surface.
+
+---
+
+# PART 2 — Reference (lookup index)
 
 ## 1. What Adrian is (one paragraph)
 
