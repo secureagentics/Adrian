@@ -1,17 +1,60 @@
 {
-  "name": "adrian-typescript",
-  "private": true,
-  "description": "Adrian TypeScript SDK monorepo (npm workspaces).",
-  "workspaces": [
-    "packages/*"
+  "name": "@secureagentics/adrian",
+  "version": "1.0.0",
+  "description": "Multi-agent security monitoring SDK for LangChain.js / LangGraph.js.",
+  "license": "Apache-2.0",
+  "author": "Secure Agentics <support@secureagentics.ai>",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "build": "tsup src/index.ts --format esm,cjs --clean && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "langchain",
+    "langgraph",
+    "ai",
+    "agents",
+    "security",
+    "monitoring",
+    "observability",
+    "llm",
+    "multi-agent",
+    "prompt-injection"
+  ],
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0",
+    "@langchain/langgraph": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "@langchain/langgraph": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "protobufjs": "^8.4.2",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"

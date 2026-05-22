@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import importlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from langchain_core.callbacks.manager import CallbackManager
@@ -679,8 +680,13 @@ def _patch_langgraph() -> None:
     top-level call so all sub-agent events share the same ID.
     """
     try:
-        from langgraph.pregel import Pregel
+        pregel_mod = importlib.import_module("langgraph.pregel")
     except ImportError:
+        return
+
+    Pregel = cast("Any", getattr(pregel_mod, "Pregel", None))
+
+    if Pregel is None:
         return
 
     if getattr(Pregel, "_adrian_pregel_patched", False):
@@ -864,8 +870,13 @@ def _patch_tool_node() -> None:
     tools.  On timeout it fails open.
     """
     try:
-        from langgraph.prebuilt import ToolNode
+        prebuilt_mod = importlib.import_module("langgraph.prebuilt")
     except ImportError:
+        return
+
+    ToolNode = cast("Any", getattr(prebuilt_mod, "ToolNode", None))
+
+    if ToolNode is None:
         return
 
     if getattr(ToolNode, "_adrian_tool_node_patched", False):

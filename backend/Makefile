@@ -28,12 +28,12 @@ clean:
 # the Go bindings. Strips the buf.validate import and field annotations
 # (see proto/README.md). Requires protoc + protoc-gen-go on PATH.
 proto-sync:
-	@echo "Syncing proto/event.proto from ../proto/..."
+	@echo "Syncing proto/event.proto from sdk/python/adrian/proto/..."
 	@sed \
 	    -e '/^import "buf\/validate\/validate.proto";$$/d' \
 	    -e 's| \[(buf\.validate\.field)[^]]*\]||g' \
 	    -e '/^package adrian\.core_api\.v1;$$/a\option go_package = "github.com/secureagentics/Adrian/backend/internal/proto;proto";' \
-	    ../proto/event.proto > proto/event.proto
+	    ../sdk/python/adrian/proto/event.proto > proto/event.proto
 	@$(MAKE) proto-regen
 
 # Regenerate Go bindings from proto/event.proto.

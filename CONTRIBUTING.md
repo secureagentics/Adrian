@@ -21,7 +21,7 @@ Thanks for considering a contribution. Adrian is open-source under the [Apache 2
 
 ## Local dev setup
 
-The Python SDK lives at `sdk/python/` (the TypeScript SDK lives at `sdk/typescript/`). From the repo root:
+The Python SDK lives at `sdk/python/`. From the repo root:
 
 ```sh
 make sdk-install            # creates .venv and installs sdk + dev deps via uv
