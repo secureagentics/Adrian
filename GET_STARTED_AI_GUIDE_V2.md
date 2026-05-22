@@ -37,14 +37,18 @@ history, edit backend services, or paste API keys into chat.
 6. Explain file changes in one short paragraph before making them.
 7. If a key has already been pasted into chat or hardcoded in a file, recommend
    revoking it and creating a fresh key stored in `.env`.
+8. When editing `.env`, stop immediately after opening the file. Wait for the
+   user to confirm they saved it before installing packages, creating scripts,
+   or running anything.
 
 Planned pause points:
 
 1. Ask the user to confirm they have copied their Adrian API key from the
    dashboard.
-2. Ask whether to use the Simple Example Agent or integrate an existing agent.
-3. If using the Simple Example Agent, ask which LLM provider to use.
-4. Ask the user to confirm `.env` is filled in before running.
+2. Ask the user to save the Adrian API key in `.env`.
+3. Ask whether to use the Simple Example Agent or integrate an existing agent.
+4. If using the Simple Example Agent, ask which LLM provider to use.
+5. Ask the user to save the selected provider values in `.env`.
 
 Do not add extra confirmation prompts unless something is unclear or risky.
 
@@ -103,8 +107,8 @@ Pause here and ask:
 
 ## Step 2 - Create `.env`
 
-Create a local `.env` file in the working folder with placeholders. Use the
-absolute path when creating or opening the file.
+Create and open a local `.env` file in the working folder. Use the absolute path
+when creating or opening the file so the user knows exactly where it lives.
 
 If the project has a `.gitignore`, make sure it contains:
 
@@ -112,20 +116,41 @@ If the project has a `.gitignore`, make sure it contains:
 .env
 ```
 
-Template:
+Use the command for the user's operating system. Replace
+`/absolute/path/to/project` or `C:\absolute\path\to\project` with the working
+folder from Step 0.
+
+```sh
+# macOS
+touch "/absolute/path/to/project/.env" && open -a TextEdit "/absolute/path/to/project/.env"
+```
+
+```sh
+# Linux
+touch "/absolute/path/to/project/.env" && ${EDITOR:-nano} "/absolute/path/to/project/.env"
+```
+
+```powershell
+# Windows PowerShell
+New-Item -ItemType File -Force "C:\absolute\path\to\project\.env"; notepad.exe "C:\absolute\path\to\project\.env"
+```
+
+Ask the user to paste this into the file, replacing the placeholder with their
+real Adrian API key:
 
 ```env
 ADRIAN_API_KEY=adr_live_replace_this
-LLM_PROVIDER=openai
 ```
 
-`LLM_PROVIDER` is only used by the Simple Example Agent. The user can leave it
-as `openai` or change it in Step 4A.
+Then say:
 
-Ask the user to fill in the real values locally in their editor. Do not ask them
-to paste secrets into chat.
+> Save `.env`, close the editor, and come back here when you are done. Do not
+> paste the key into chat.
 
-Before running anything, verify without printing full secrets:
+Stop here. Do not continue to agent selection until the user confirms the file
+is saved.
+
+After they confirm, verify without printing full secrets:
 
 - `ADRIAN_API_KEY` exists and starts with `adr_live_`
 - there are no quote marks around the values
@@ -170,9 +195,11 @@ Ask:
 > **e. Ollama** - no API key; usually runs locally at
 > `http://localhost:11434`; package `langchain-ollama`
 
-For the chosen provider, add only that provider's values to `.env`.
+For the chosen provider, open `.env` again using the same command style from
+Step 2. Ask the user to add only that provider's values below the existing
+Adrian key.
 
-Examples:
+Use the matching block:
 
 ```env
 # OpenAI
@@ -197,6 +224,20 @@ AZURE_OPENAI_DEPLOYMENT=your-deployment-name
 LLM_PROVIDER=ollama
 OLLAMA_MODEL=llama3.2
 ```
+
+Then say:
+
+> Save `.env`, close the editor, and come back here when you are done. Do not
+> paste the provider key into chat.
+
+Stop here. Do not install packages or create `adrian_quickstart.py` until the
+user confirms `.env` is saved.
+
+After they confirm, verify without printing full secrets:
+
+- `LLM_PROVIDER` is one of `openai`, `anthropic`, `google`, `azure`, or `ollama`
+- the selected provider's required values exist
+- there are no placeholder values left for the selected provider
 
 For Ollama, check whether it is running:
 
@@ -314,7 +355,7 @@ if __name__ == "__main__":
 
 ### Run
 
-Ask the user to confirm `.env` is filled in. Then run:
+Load `.env` and run the example:
 
 ```sh
 set -a
@@ -326,7 +367,8 @@ python adrian_quickstart.py
 If it prints an answer, say:
 
 > Everything worked! Open `https://app.adrian.secureagentics.ai/events` and you
-> should see the event within a few seconds.
+> should see the event within a few seconds. Then use the final success message
+> below.
 
 If the event does not appear, go to "If Anything Goes Wrong" below.
 
@@ -388,7 +430,8 @@ set +a
 If the agent runs, say:
 
 > Everything worked! Open `https://app.adrian.secureagentics.ai/events` and you
-> should see events within a few seconds.
+> should see events within a few seconds. Then use the final success message
+> below.
 
 ---
 
@@ -444,6 +487,9 @@ Recommend this cleanup:
 
 When setup works, keep the final message simple:
 
-> Everything worked. Adrian is now receiving events from your agent. Your local
-> secrets are in `.env`, your local event copy is in `events.jsonl`, and the
-> dashboard event feed is at `https://app.adrian.secureagentics.ai/events`.
+> Everything worked! You have just integrated a security monitoring system
+> around an agent. Every action that agent takes can now appear in your Adrian
+> dashboard, where Adrian assesses whether the action looks safe or dangerous.
+> You can use **Configurations** to give Adrian more context about the agent it
+> is monitoring, choose whether to block dangerous actions or only receive
+> alerts, and set up alerting through Discord or Slack.
