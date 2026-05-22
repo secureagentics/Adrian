@@ -107,8 +107,9 @@ Pause here and ask:
 
 ## Step 2 - Create `.env`
 
-Create and open a local `.env` file in the working folder. Use the absolute path
-when creating or opening the file so the user knows exactly where it lives.
+Create a local `.env` file in the working folder, write the Adrian placeholder
+line into it, then open it for the user. Use the absolute path when creating or
+opening the file so the user knows exactly where it lives.
 
 If the project has a `.gitignore`, make sure it contains:
 
@@ -116,27 +117,40 @@ If the project has a `.gitignore`, make sure it contains:
 .env
 ```
 
-Use the command for the user's operating system. Replace
+Use the command for the user's operating system. These commands put the
+placeholder in the file before the editor opens, so the user does not need to
+copy anything from chat and overwrite the API key on their clipboard. Replace
 `/absolute/path/to/project` or `C:\absolute\path\to\project` with the working
 folder from Step 0.
 
+If the assistant can run shell commands, it should run this command itself so
+the user's clipboard can keep the Adrian API key.
+
 ```sh
 # macOS
-touch "/absolute/path/to/project/.env" && open -a TextEdit "/absolute/path/to/project/.env"
+ENV_FILE="/absolute/path/to/project/.env"
+grep -q '^ADRIAN_API_KEY=' "$ENV_FILE" 2>/dev/null || printf 'ADRIAN_API_KEY=adr_live_replace_this\n' >> "$ENV_FILE"
+open -a TextEdit "$ENV_FILE"
 ```
 
 ```sh
 # Linux
-touch "/absolute/path/to/project/.env" && ${EDITOR:-nano} "/absolute/path/to/project/.env"
+ENV_FILE="/absolute/path/to/project/.env"
+grep -q '^ADRIAN_API_KEY=' "$ENV_FILE" 2>/dev/null || printf 'ADRIAN_API_KEY=adr_live_replace_this\n' >> "$ENV_FILE"
+${EDITOR:-nano} "$ENV_FILE"
 ```
 
 ```powershell
 # Windows PowerShell
-New-Item -ItemType File -Force "C:\absolute\path\to\project\.env"; notepad.exe "C:\absolute\path\to\project\.env"
+$envFile = "C:\absolute\path\to\project\.env"
+if (!(Test-Path $envFile) -or -not (Select-String -Path $envFile -Pattern '^ADRIAN_API_KEY=' -Quiet)) {
+  Add-Content -Path $envFile -Value 'ADRIAN_API_KEY=adr_live_replace_this'
+}
+notepad.exe $envFile
 ```
 
-Ask the user to paste this into the file, replacing the placeholder with their
-real Adrian API key:
+Ask the user to replace the placeholder in the file with their real Adrian API
+key:
 
 ```env
 ADRIAN_API_KEY=adr_live_replace_this
@@ -195,11 +209,14 @@ Ask:
 > **e. Ollama** - no API key; usually runs locally at
 > `http://localhost:11434`; package `langchain-ollama`
 
-For the chosen provider, open `.env` again using the same command style from
-Step 2. Ask the user to add only that provider's values below the existing
-Adrian key.
+For the chosen provider, write exactly one matching provider block into `.env`
+before opening the editor. Do not ask the user to copy the block from chat. If a
+provider block already exists, update it instead of adding duplicates.
 
-Use the matching block:
+Then open `.env` again using the same editor style from Step 2, and ask the
+user to replace the provider placeholder with their real provider key.
+
+Use only the matching block:
 
 ```env
 # OpenAI
@@ -367,8 +384,15 @@ python adrian_quickstart.py
 If it prints an answer, say:
 
 > Everything worked! Open `https://app.adrian.secureagentics.ai/events` and you
-> should see the event within a few seconds. Then use the final success message
-> below.
+> should see the event within a few seconds.
+
+Then ask:
+
+> Want me to integrate Adrian with one of your real agents now? If yes, send me
+> the path to your LangChain or LangGraph agent file. If not, you can stop here.
+
+If the user says yes or sends a file path, continue to Step 4B. If the user
+stops, use the final success message below.
 
 If the event does not appear, go to "If Anything Goes Wrong" below.
 
