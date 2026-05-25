@@ -15,6 +15,7 @@
   <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian-sdk.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/6nmJ9k3u6"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
+  <a href="https://www.producthunt.com/products/adrian?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-adrian" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Product%20Hunt-Featured-DA552F?logo=producthunt&logoColor=white" alt="Product Hunt" /></a>
 </p>
 
 ---
@@ -212,4 +213,5 @@ Adrian is released under the [Apache 2.0 licence](LICENSE). New source files sho
 
 ## Featured on
 
+- [Product Hunt](https://www.producthunt.com/products/adrian?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-adrian) <a href="https://www.producthunt.com/products/adrian?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-adrian" target="_blank" rel="noopener noreferrer"><img src="https://cdn.simpleicons.org/producthunt/DA552F" alt="Featured on Product Hunt" height="25"></a>
 - [There's An AI For That](https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736) <a href="https://theresanaiforthat.com/ai/adrian/?ref=social-icon&v=10763736" target="_blank" rel="nofollow"><img src="https://media.theresanaiforthat.com/social/icon_full.svg" alt="Featured on TAAFT" height="25"></a>
