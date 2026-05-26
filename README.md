@@ -36,6 +36,8 @@ https://github.com/user-attachments/assets/96974b9d-4862-41ac-a499-ef5cfe76e16a
 
 ## Quickstart
 
+Check out this Youtube Video: https://youtu.be/7vYjeGxY8to
+
 > **Want the stupidly simple, 60-second hands-off install?** Feed your coding agent (Claude, Codex, Cursor, etc.) this file: [GET_STARTED_AI_GUIDE.md](https://github.com/secureagentics/Adrian/blob/main/GET_STARTED_AI_GUIDE.md). It will walk you through the installation process. Always review instructions manually
 
 The next fastest way to try Adrian is the managed dashboard at [app.adrian.secureagentics.ai](https://app.adrian.secureagentics.ai). Sign-up takes a minute and there is nothing to install beyond the SDK. To run Adrian on your own infrastructure instead, jump to [Self-hosting](#self-hosting) below.
