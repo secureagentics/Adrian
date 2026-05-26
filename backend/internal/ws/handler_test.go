@@ -235,6 +235,97 @@ func TestAlertModeNoFanOut(t *testing.T) {
 	}
 }
 
+func TestSessionIDReuseDifferentOwnerDoesNotStealVerdicts(t *testing.T) {
+	db := openInMemoryDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+
+	st := store.New(db)
+	plaintextKeyA := "adr_local_test_key_owner_a"
+	plaintextKeyB := "adr_local_test_key_owner_b"
+	insertAPIKeyWithProfile(t, db, sha256Hex(plaintextKeyA), "agent-profile-a")
+	insertAPIKeyWithProfile(t, db, sha256Hex(plaintextKeyB), "agent-profile-b")
+
+	if _, err := db.Exec(`UPDATE policies SET mode = 'block' WHERE id = 1`); err != nil {
+		t.Fatalf("set mode=block: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/ws", ws.AuthMiddleware(st)(ws.NewHandler(st, &fakeClassifier{}, ws.NewHub(), nil, nil)))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	connA, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{
+		"Authorization": {"Bearer " + plaintextKeyA},
+	})
+	if err != nil {
+		t.Fatalf("dial client A: %v", err)
+	}
+	t.Cleanup(func() { _ = connA.Close() })
+
+	const sessionID = "shared-session-takeover-test"
+	if err := writeProto(connA, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_Login{Login: &bpb.SessionLogin{
+			SessionId: sessionID, SchemaVersion: 2,
+		}},
+	}); err != nil {
+		t.Fatalf("send login client A: %v", err)
+	}
+	if _, err := readServerFrame(connA); err != nil {
+		t.Fatalf("read login_ack client A: %v", err)
+	}
+
+	connB, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{
+		"Authorization": {"Bearer " + plaintextKeyB},
+	})
+	if err != nil {
+		t.Fatalf("dial client B: %v", err)
+	}
+	t.Cleanup(func() { _ = connB.Close() })
+	if err := writeProto(connB, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_Login{Login: &bpb.SessionLogin{
+			SessionId: sessionID, SchemaVersion: 2,
+		}},
+	}); err != nil {
+		t.Fatalf("send login client B: %v", err)
+	}
+	if _, err := readServerFrame(connB); err != nil {
+		t.Fatalf("read login_ack client B: %v", err)
+	}
+	if err := connB.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set client B deadline: %v", err)
+	}
+	if _, _, err := connB.ReadMessage(); err == nil {
+		t.Fatal("expected conflicting client B to be closed")
+	} else if closeErr, ok := err.(*websocket.CloseError); !ok || closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("client B close err = %v, want close code %d", err, websocket.ClosePolicyViolation)
+	}
+
+	eventID := uuid.NewString()
+	if err := writeProto(connA, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_PairedBatch{PairedBatch: &bpb.PairedEventBatch{
+			Events: []*bpb.PairedEvent{{
+				EventId: eventID, SessionId: sessionID,
+				PairType: bpb.PairType_PAIR_TYPE_TOOL,
+				Agent:    &bpb.AgentContext{AgentId: "owner-a-agent"},
+				Data: &bpb.PairedEvent_Tool{Tool: &bpb.ToolPairData{
+					ToolName: "noop", ToolCallId: "tc-owner-a", Input: "{}", Output: "ok",
+				}},
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("send paired_batch client A: %v", err)
+	}
+
+	verdict, err := readServerFrame(connA)
+	if err != nil {
+		t.Fatalf("read verdict client A: %v", err)
+	}
+	if got := verdict.GetVerdict(); got == nil || got.EventId != eventID {
+		t.Fatalf("client A verdict = %+v, want event_id %q", got, eventID)
+	}
+}
+
 // TestRevokeKicksLiveWS asserts the security guarantee: an open WS
 // authenticated with key X gets terminated within seconds when X is
 // revoked, not at next-disconnect-whenever. Drives the path the REST
@@ -397,6 +488,17 @@ func insertAPIKey(t *testing.T, db *sql.DB, hashHex string) {
 	_, err := db.Exec(
 		`INSERT INTO api_keys (id, key_hash, prefix, label) VALUES (?, ?, ?, ?)`,
 		uuid.NewString(), hashHex, "adr_local_te", "test",
+	)
+	if err != nil {
+		t.Fatalf("insert api_keys: %v", err)
+	}
+}
+
+func insertAPIKeyWithProfile(t *testing.T, db *sql.DB, hashHex, agentProfileID string) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO api_keys (id, key_hash, prefix, label, agent_profile_id) VALUES (?, ?, ?, ?, ?)`,
+		uuid.NewString(), hashHex, "adr_local_te", "test", agentProfileID,
 	)
 	if err != nil {
 		t.Fatalf("insert api_keys: %v", err)

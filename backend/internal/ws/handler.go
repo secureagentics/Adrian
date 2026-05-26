@@ -99,7 +99,25 @@ func serve(ctx context.Context, conn *websocket.Conn, sess *session, st *store.S
 	// verdicts and HITL resolutions land here, drained by the writer
 	// goroutine. The LoginAck is written directly inside handleLogin
 	// (single goroutine, pre-register, no concurrency to serialise).
-	hubCh, deregister := hub.Register(sess.sessionID)
+	hubCh, deregister, err := hub.Register(sess.sessionID, sess.routeOwner())
+	if err != nil {
+		if errors.Is(err, ErrSessionOwnerConflict) {
+			slog.WarnContext(ctx, "ws.session_owner_conflict",
+				"session_id", sess.sessionID,
+				"api_key_id", sess.apiKey.ID,
+				"route_owner", sess.routeOwner(),
+			)
+			closeWith(conn, closePolicyViolation, "session_id already active for another owner")
+			return
+		}
+		slog.ErrorContext(ctx, "ws.session_register_failed",
+			"error", err,
+			"session_id", sess.sessionID,
+			"api_key_id", sess.apiKey.ID,
+		)
+		closeWith(conn, closeInternalServerErr, "internal error")
+		return
+	}
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)

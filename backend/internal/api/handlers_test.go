@@ -505,7 +505,10 @@ func TestApproveReviewPublishesToSubscriber(t *testing.T) {
 	}
 
 	// Fake SDK subscriber.
-	ch, dereg := hub.Register(sessID)
+	ch, dereg, err := hub.Register(sessID, "test-owner")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	defer dereg()
 
 	resp := postJSON(t, srv, cookie, "/api/reviews/"+queueID+"/approve", map[string]any{})
