@@ -1,0 +1,40 @@
+spec_version: "0.1.0"
+name: adrian
+version: 1.0.0
+description: >
+  Adrian is an open-source, AARM-aligned runtime security monitoring and control
+  engine for AI agents. It analyses both agent activity logs (tool calls, actions,
+  outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit
+  behaviour — and optionally intervenes in-flight. Ships as a Python SDK with a
+  two-line install for LangChain / LangGraph agents, plus a self-hostable stack
+  (Go backend + Next.js dashboard + local Llama.cpp classifier) for fully
+  data-sovereign deployments.
+author: secureagentics
+license: Apache-2.0
+
+model:
+  preferred: anthropic:claude-sonnet-4-6
+  constraints:
+    temperature: 0.2
+    max_tokens: 8192
+
+skills:
+  - runtime-security-monitor
+  - prompt-injection-detection
+  - policy-drift-detection
+  - tool-call-auditing
+  - reasoning-trace-analysis
+
+runtime:
+  max_turns: 100
+  timeout: 600
+
+compliance:
+  risk_tier: high
+  supervision:
+    human_in_the_loop: destructive
+    kill_switch: true
+  recordkeeping:
+    audit_logging: true
+  data_governance:
+    pii_handling: redact
