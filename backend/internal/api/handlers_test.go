@@ -133,8 +133,21 @@ func TestLoginHappyPath(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if cookie := getCookie(resp, "adrian_token"); cookie == "" {
+	cookie := findCookie(resp, "adrian_token")
+	if cookie == nil {
 		t.Fatal("expected adrian_token cookie")
+	}
+	if cookie.Value == "" {
+		t.Fatal("expected adrian_token cookie value")
+	}
+	if !cookie.HttpOnly {
+		t.Error("adrian_token should be HttpOnly")
+	}
+	if !cookie.Secure {
+		t.Error("adrian_token should be Secure")
+	}
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("adrian_token SameSite = %v, want Lax", cookie.SameSite)
 	}
 	body := decodeBody(t, resp)
 	data := body["data"].(map[string]any)
@@ -143,6 +156,36 @@ func TestLoginHappyPath(t *testing.T) {
 	}
 	if mc, _ := data["must_change_password"].(bool); !mc {
 		t.Errorf("must_change_password should be true on fresh user")
+	}
+}
+
+func TestLogoutClearsSecureSessionCookie(t *testing.T) {
+	srv, _, plaintext, _ := newTestServer(t)
+	cookie := loginAndGetCookie(t, srv, plaintext)
+
+	resp := postJSON(t, srv, cookie, "/api/auth/logout", map[string]any{})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+
+	cleared := findCookie(resp, "adrian_token")
+	if cleared == nil {
+		t.Fatal("expected adrian_token clearing cookie")
+	}
+	if cleared.Value != "" {
+		t.Errorf("clearing cookie value = %q, want empty", cleared.Value)
+	}
+	if cleared.MaxAge >= 0 {
+		t.Errorf("clearing cookie MaxAge = %d, want negative", cleared.MaxAge)
+	}
+	if !cleared.HttpOnly {
+		t.Error("clearing cookie should be HttpOnly")
+	}
+	if !cleared.Secure {
+		t.Error("clearing cookie should be Secure")
+	}
+	if cleared.SameSite != http.SameSiteLaxMode {
+		t.Errorf("clearing cookie SameSite = %v, want Lax", cleared.SameSite)
 	}
 }
 
@@ -1128,12 +1171,20 @@ func loginAndGetCookie(t *testing.T, srv *httptest.Server, plaintext string) str
 }
 
 func getCookie(resp *http.Response, name string) string {
+	c := findCookie(resp, name)
+	if c == nil {
+		return ""
+	}
+	return c.Value
+}
+
+func findCookie(resp *http.Response, name string) *http.Cookie {
 	for _, c := range resp.Cookies() {
 		if c.Name == name {
-			return c.Value
+			return c
 		}
 	}
-	return ""
+	return nil
 }
 
 func postJSON(t *testing.T, srv *httptest.Server, cookie any, path string, body any) *http.Response {
