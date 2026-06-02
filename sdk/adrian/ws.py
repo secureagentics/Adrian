@@ -513,6 +513,18 @@ class WebSocketClient:
                 else:
                     logger.info("WebSocket connected: %s", self._url)
 
+                # Eager login: send the SessionLogin frame immediately
+                # so the server responds with LoginAck before any tool
+                # gate fires.  Previously login was deferred to the
+                # first _send_frame call, which meant frameworks that
+                # don't trigger paired events (AgentExecutor) would
+                # never receive LoginAck and the block gate would time
+                # out.  Provider/model are best-effort at this point
+                # (empty until the first LLM event auto-detects them).
+                if not self._logged_in:
+                    await self._send_login(self._ws)
+                    self._logged_in = True
+
                 # Drain anything buffered while we were offline, even
                 # on the very first connect.  ``_send_mcp_inventory``
                 # and other init-time emitters queue frames before the
