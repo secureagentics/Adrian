@@ -1,7 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { currentConfig } from "../config.js";
 import type { AdrianCallbackHandler } from "../handler.js";
 import { runWithInvocationId } from "../context.js";
+import { assertToolCallsAllowed } from "../policy.js";
+import { getWebSocketClient } from "../registry.js";
 import type { CallbackMetadata, ChatMessage, LlmEndData, TokenUsage, ToolArgs, ToolCallRecord } from "../types.js";
+
+/** Gate tool calls after the paired LLM event has been emitted (maps tool-call ids on the WS client). */
+export async function gateLlmEndData(end: LlmEndData): Promise<void> {
+  await assertToolCallsAllowed(
+    end.toolCalls.map((call) => call.id),
+    getWebSocketClient(),
+    currentConfig()?.blockTimeout ?? 30,
+  );
+}
 
 export interface LlmCaptureInput {
   model: string;
@@ -15,6 +27,7 @@ export async function captureLlmCall<T>(
   input: LlmCaptureInput,
   execute: () => Promise<T>,
   extractOutput: (result: T) => LlmEndData | Promise<LlmEndData>,
+  afterPairedEmit?: (end: LlmEndData) => void | Promise<void>,
 ): Promise<T> {
   const handler = getHandler();
   if (!handler) return execute();
@@ -24,7 +37,9 @@ export async function captureLlmCall<T>(
     await handler.handleChatModelStart({ name: input.model }, [input.messages], runId, input.parentRunId, { metadata: input.metadata ?? null });
     try {
       const result = await execute();
-      await handler.handleLLMEnd(await extractOutput(result), runId);
+      const endData = await extractOutput(result);
+      await handler.handleLLMEnd(endData, runId);
+      await afterPairedEmit?.(endData);
       return result;
     } catch (error) {
       await handler.handleLLMError(error, runId);
@@ -38,7 +53,8 @@ export function captureLlmAsyncIterable<T>(
   input: LlmCaptureInput,
   iterable: AsyncIterable<T>,
   aggregate: (chunk: T) => void,
-  extractOutput: () => LlmEndData,
+  extractOutput: () => LlmEndData | Promise<LlmEndData>,
+  afterPairedEmit?: (end: LlmEndData) => void | Promise<void>,
 ): AsyncIterable<T> {
   const handler = getHandler();
   if (!handler) return iterable;
@@ -57,13 +73,19 @@ export function captureLlmAsyncIterable<T>(
           yield chunk;
         }
         emitted = true;
-        await handler?.handleLLMEnd(await extractOutput(), runId);
+        const endData = await extractOutput();
+        await handler?.handleLLMEnd(endData, runId);
+        await afterPairedEmit?.(endData);
       } catch (error) {
         failed = true;
         await handler?.handleLLMError(error, runId);
         throw error;
       } finally {
-        if (!emitted && !failed) await handler?.handleLLMEnd(await extractOutput(), runId);
+        if (!emitted && !failed) {
+          const endData = await extractOutput();
+          await handler?.handleLLMEnd(endData, runId);
+          await afterPairedEmit?.(endData);
+        }
       }
     });
   }

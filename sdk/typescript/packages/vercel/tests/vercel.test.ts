@@ -1,9 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { init, shutdown, type EventData } from "@secureagentics/adrian";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as adrianCore from "@secureagentics/adrian";
+import { AdrianPolicyBlockedError, init, Mode, shutdown, type EventData, type Verdict, type WebSocketClient } from "@secureagentics/adrian";
 import { captureTool, adrian, adrianTools } from "../src/index.js";
+
+function mockWs(halt: boolean): WebSocketClient {
+  return {
+    waitForPolicyReady: async () => true,
+    policyActive: () => true,
+    blockTimeout: (seconds: number) => seconds,
+    waitForToolCallVerdict: async (toolCallId: string) => ({
+      eventId: `event-${toolCallId}`,
+      sessionId: "sess",
+      madCode: "M3_TEST",
+      policy: { mode: Mode.MODE_BLOCK, policyM0: false, policyM2: false, policyM3: halt, policyM4: false },
+      hitl: null,
+    } satisfies Verdict),
+  } as unknown as WebSocketClient;
+}
 
 describe("Vercel AI SDK instrumentation", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await shutdown();
   });
 
@@ -60,6 +77,37 @@ describe("Vercel AI SDK instrumentation", () => {
       output: "streamed",
       usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 },
     });
+  });
+
+  it("blocks captureTool when policy halts", async () => {
+    await init({ handlers: [], sessionId: "sess", wsUrl: null, blockTimeout: 5 });
+    vi.spyOn(adrianCore, "getWebSocketClient").mockReturnValue(mockWs(true));
+
+    let executed = false;
+    await expect(captureTool({
+      toolCallId: "tool-weather",
+      toolName: "getWeather",
+      args: { city: "SF" },
+    }, async () => {
+      executed = true;
+      return { ok: true };
+    })).rejects.toBeInstanceOf(AdrianPolicyBlockedError);
+
+    expect(executed).toBe(false);
+  });
+
+  it("blocks adrianTools execute when policy halts", async () => {
+    await init({ handlers: [], sessionId: "sess", wsUrl: null, blockTimeout: 5 });
+    vi.spyOn(adrianCore, "getWebSocketClient").mockReturnValue(mockWs(true));
+
+    const tools = adrianTools({
+      getWeather: {
+        description: "Get weather",
+        execute: async () => ({ temp: 72 }),
+      },
+    });
+
+    await expect(tools.getWeather.execute({ city: "SF" }, { toolCallId: "tool-weather" })).rejects.toBeInstanceOf(AdrianPolicyBlockedError);
   });
 
   it("captures local Vercel AI tool execution as a tool event", async () => {

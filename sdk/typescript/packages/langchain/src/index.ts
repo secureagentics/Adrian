@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { currentConfig, getHandler, getWebSocketClient, runWithInvocationId, shouldHalt } from "@secureagentics/adrian";
+import { BLOCKED_TOOL_MESSAGE, currentConfig, gateToolCallIds, getHandler, getWebSocketClient, runWithInvocationId } from "@secureagentics/adrian";
 import type { AdrianCallbackHandler, WebSocketClient } from "@secureagentics/adrian";
 
 let patched = false;
@@ -105,17 +105,10 @@ async function patchToolNode(getHandlerFn: () => AdrianCallbackHandler | null, g
 }
 
 export async function blockedToolNodeResponse(input: unknown, ws: WebSocketClient | null): Promise<{ messages: Array<Record<string, string>> } | null> {
-  if (!ws) return null;
-  const cfg = currentConfig();
-  const policyReady = await ws.waitForPolicyReady(cfg?.blockTimeout ?? 30);
-  if (!policyReady || !ws.policyActive()) return null;
   const toolCalls = extractToolCalls(input);
   if (toolCalls.length === 0) return null;
-  if (toolCalls.some((call) => !call.id)) return buildBlockedResponse(toolCalls);
-
-  const timeout = ws.blockTimeout(cfg?.blockTimeout ?? 30);
-  const verdicts = await Promise.all(toolCalls.map((call) => ws.waitForToolCallVerdict(call.id, timeout)));
-  if (verdicts.some((verdict) => !verdict || shouldHalt(verdict))) return buildBlockedResponse(toolCalls);
+  const gate = await gateToolCallIds(toolCalls.map((call) => call.id), ws, currentConfig()?.blockTimeout ?? 30);
+  if (gate.action === "block") return buildBlockedResponse(toolCalls);
   return null;
 }
 
@@ -130,7 +123,7 @@ export function extractToolCalls(input: unknown): Array<{ id: string; name: stri
 }
 
 export function buildBlockedResponse(toolCalls: Array<{ id: string; name: string }>): { messages: Array<Record<string, string>> } {
-  return { messages: toolCalls.map((call) => ({ content: "[BLOCKED by security policy]", tool_call_id: call.id, name: call.name, type: "tool" })) };
+  return { messages: toolCalls.map((call) => ({ content: BLOCKED_TOOL_MESSAGE, tool_call_id: call.id, name: call.name, type: "tool" })) };
 }
 
 async function importOptional(specifier: string): Promise<any | null> {

@@ -32,6 +32,8 @@ await shutdown();
 
 `adrian()` wraps `chat.completions.create`, `responses.create`, and their streaming variants. Events are paired, PII-redacted, and streamed to Adrian automatically.
 
+When the dashboard policy is in **BLOCK** or **HITL** mode and `init()` is connected over WebSocket, the SDK waits for verdicts on LLM turns that propose tool calls and throws `AdrianPolicyBlockedError` before those tools can run. `captureTool` applies the same gate before executing your handler.
+
 ## Tool execution capture
 
 OpenAI returns tool call requests; your app executes the tools. Wrap that execution with `captureTool`:

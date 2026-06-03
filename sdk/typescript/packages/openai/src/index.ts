@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { getHandler, runWithInvocationId } from "@secureagentics/adrian";
+import { assertToolCallsAllowed, currentConfig, getHandler, getWebSocketClient, runWithInvocationId } from "@secureagentics/adrian";
 import type { CallbackMetadata, LlmEndData, ToolCallRecord } from "@secureagentics/adrian";
 import {
   captureLlmAsyncIterable,
   captureLlmCall,
+  gateLlmEndData,
   emptyLlmEnd,
   messagesFromPromptLike,
   normalizeMessages,
@@ -58,6 +59,8 @@ export async function captureTool<T>(
   const input = String(toolCall.function?.arguments ?? toolCall.arguments ?? "");
   const metadata = integrationMetadata(options.metadata, "openai.tool_call");
 
+  await assertToolCallsAllowed(toolCallId ? [toolCallId] : [], getWebSocketClient(), currentConfig()?.blockTimeout ?? 30);
+
   return runWithInvocationId(randomUUID(), async () => {
     await handler.handleToolStart({ name: toolName }, input, runId, options.parentRunId, { metadata, tool_call_id: toolCallId });
     try {
@@ -96,7 +99,7 @@ function instrumentChatCompletions(completions: unknown, options: AdrianOptions)
           if (isAsyncIterable(result)) return captureChatCompletionStream(model, messages, metadata, result);
           return result;
         }
-        return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractChatCompletion);
+        return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractChatCompletion, gateLlmEndData);
       };
     },
   });
@@ -117,7 +120,7 @@ function instrumentResponses(responses: unknown, options: AdrianOptions): unknow
           if (isAsyncIterable(result)) return captureResponseStream(model, messages, metadata, result);
           return result;
         }
-        return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractResponse);
+        return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractResponse, gateLlmEndData);
       };
     },
   });
@@ -147,7 +150,7 @@ function captureChatCompletionStream(model: string, messages: ReturnType<typeof 
         });
       }
     }
-  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage));
+  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage), gateLlmEndData);
 }
 
 function captureResponseStream(model: string, messages: ReturnType<typeof normalizeMessages>, metadata: CallbackMetadata | null, stream: AsyncIterable<unknown>): AsyncIterable<unknown> {
@@ -160,7 +163,7 @@ function captureResponseStream(model: string, messages: ReturnType<typeof normal
     if (obj.type === "response.output_text.delta" && typeof obj.delta === "string") output += obj.delta;
     if (typeof obj.output_text === "string") output += obj.output_text;
     collectResponseStreamToolCall(obj, toolCallParts);
-  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage));
+  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage), gateLlmEndData);
 }
 
 function extractChatCompletion(result: unknown): LlmEndData {
@@ -227,6 +230,8 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 }
 
 export {
+  AdrianPolicyBlockedError,
+  BLOCKED_TOOL_MESSAGE,
   init,
   shutdown,
   getHandler,

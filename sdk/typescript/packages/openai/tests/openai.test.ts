@@ -1,9 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { init, shutdown, type EventData } from "@secureagentics/adrian";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as adrianCore from "@secureagentics/adrian";
+import { AdrianPolicyBlockedError, init, Mode, shutdown, type EventData, type Verdict, type WebSocketClient } from "@secureagentics/adrian";
 import { captureTool, adrian } from "../src/index.js";
+
+function mockWs(halt: boolean): WebSocketClient {
+  return {
+    waitForPolicyReady: async () => true,
+    policyActive: () => true,
+    blockTimeout: (seconds: number) => seconds,
+    waitForToolCallVerdict: async (toolCallId: string) => ({
+      eventId: `event-${toolCallId}`,
+      sessionId: "sess",
+      madCode: "M3_TEST",
+      policy: { mode: Mode.MODE_BLOCK, policyM0: false, policyM2: false, policyM3: halt, policyM4: false },
+      hitl: null,
+    } satisfies Verdict),
+  } as unknown as WebSocketClient;
+}
 
 describe("OpenAI instrumentation", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await shutdown();
   });
 
@@ -163,6 +180,22 @@ describe("OpenAI instrumentation", () => {
       model: "gpt-4o-mini",
       output: "first ",
     });
+  });
+
+  it("blocks captureTool when policy halts", async () => {
+    await init({ handlers: [], sessionId: "sess", wsUrl: null, blockTimeout: 5 });
+    vi.spyOn(adrianCore, "getWebSocketClient").mockReturnValue(mockWs(true));
+
+    let executed = false;
+    await expect(captureTool({
+      id: "call-weather",
+      function: { name: "get_weather", arguments: "{}" },
+    }, async () => {
+      executed = true;
+      return { ok: true };
+    })).rejects.toBeInstanceOf(AdrianPolicyBlockedError);
+
+    expect(executed).toBe(false);
   });
 
   it("captures local OpenAI tool execution as a tool event", async () => {

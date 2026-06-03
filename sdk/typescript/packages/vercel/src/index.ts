@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { getHandler, runWithInvocationId } from "@secureagentics/adrian";
+import { assertToolCallsAllowed, currentConfig, getHandler, getWebSocketClient, runWithInvocationId } from "@secureagentics/adrian";
 import type { CallbackMetadata, LlmEndData, ToolCallRecord } from "@secureagentics/adrian";
-import { captureLlmCall, emptyLlmEnd, messagesFromPromptLike, normalizeUsage, parseToolArgs, stringifyContent } from "@secureagentics/adrian/capture";
+import { captureLlmCall, gateLlmEndData, emptyLlmEnd, messagesFromPromptLike, normalizeUsage, parseToolArgs, stringifyContent } from "@secureagentics/adrian/capture";
 
 export interface AdrianOptions {
   metadata?: CallbackMetadata | null;
@@ -79,6 +79,8 @@ export async function captureTool<T>(
   const input = stringifyContent(toolCall.args);
   const metadata = integrationMetadata(options.metadata, "vercel-ai.tool_call");
 
+  await assertToolCallsAllowed(toolCallId ? [toolCallId] : [], getWebSocketClient(), currentConfig()?.blockTimeout ?? 30);
+
   return runWithInvocationId(randomUUID(), async () => {
     await handler.handleToolStart({ name: toolName }, input, runId, options.parentRunId, { metadata, toolCallId });
     try {
@@ -114,7 +116,7 @@ function captureVercelCall<T>(operation: string, execute: () => T, args: Record<
     return result;
   }
 
-  return Promise.resolve(result).then((resolved) => captureLlmCall(getHandler, { model, messages: messagesFromPromptLike(args), metadata }, async () => resolved, extractVercelResult));
+  return Promise.resolve(result).then((resolved) => captureLlmCall(getHandler, { model, messages: messagesFromPromptLike(args), metadata }, async () => resolved, extractVercelResult, gateLlmEndData));
 }
 
 async function emitVercelStreamResult(model: string, args: Record<string, unknown>, metadata: CallbackMetadata, result: unknown): Promise<void> {
@@ -126,7 +128,7 @@ async function emitVercelStreamResult(model: string, args: Record<string, unknow
       resolveMaybe(obj.usage, null),
     ]);
     return emptyLlmEnd(typeof text === "string" ? text : stringifyContent(text), normalizeVercelToolCalls(toolCalls), normalizeVercelUsage(usage));
-  });
+  }, gateLlmEndData);
 }
 
 function extractVercelResult(result: unknown): LlmEndData {
@@ -176,6 +178,8 @@ function integrationMetadata(metadata: CallbackMetadata | null | undefined, oper
 }
 
 export {
+  AdrianPolicyBlockedError,
+  BLOCKED_TOOL_MESSAGE,
   init,
   shutdown,
   getHandler,

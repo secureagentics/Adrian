@@ -62,6 +62,24 @@ describe("ToolNode policy gating", () => {
     expect(response?.messages[0]?.content).toContain("BLOCKED");
   });
 
+  it("blocks ToolNode when policy halts a tool call", async () => {
+    setConfig(config());
+    const ws = {
+      waitForPolicyReady: async () => true,
+      policyActive: () => true,
+      blockTimeout: (seconds: number) => seconds,
+      waitForToolCallVerdict: async (toolCallId: string) => verdict(`event-${toolCallId}`, true),
+    } as unknown as WebSocketClient;
+
+    const response = await blockedToolNodeResponse({
+      messages: [{ tool_calls: [{ id: "call-weather", name: "get_weather" }] }],
+    }, ws);
+
+    expect(response?.messages).toHaveLength(1);
+    expect(response?.messages[0]?.content).toContain("BLOCKED");
+    expect(response?.messages[0]?.tool_call_id).toBe("call-weather");
+  });
+
   it("does not block when all correlated verdicts allow execution", async () => {
     setConfig(config());
     const ws = {

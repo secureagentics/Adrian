@@ -95,6 +95,8 @@ export { EventPairBuffer } from "./pairing.js";
 export { AgentContextTracker, getInvocationId, runWithInvocationId } from "./context.js";
 export { deriveAgentId, deriveLangGraphAgentId } from "./identity.js";
 export { WebSocketClient, shouldHalt } from "./ws.js";
+export { AdrianPolicyBlockedError, BLOCKED_TOOL_MESSAGE, assertToolCallsAllowed, gateToolCallIds } from "./policy.js";
+export type { GateToolCallsReason, GateToolCallsResult } from "./policy.js";
 export { mcpServers, registerMcpServer, registerMcpConnection } from "./mcp.js";
 export { resolveSessionId, envAwareResolveSessionId } from "./sessionPersistence.js";
 export { getHandler, getWebSocketClient } from "./registry.js";

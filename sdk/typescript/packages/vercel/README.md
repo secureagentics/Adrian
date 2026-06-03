@@ -32,6 +32,8 @@ await shutdown();
 
 `adrian()` wraps `generateText`, `streamText`, `generateObject`, and `streamObject`.
 
+With **BLOCK** or **HITL** policy and a live WebSocket, `generateText` / streaming calls wait for verdicts when the model returns tool calls, and `captureTool` / `adrianTools` wait before running `execute`. A halt throws `AdrianPolicyBlockedError`.
+
 ## Tools
 
 Pass wrapped tool definitions to `generateText`:
