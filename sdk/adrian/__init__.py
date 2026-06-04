@@ -74,7 +74,7 @@ from adrian.session_persistence import resolve_session_id
 from adrian.types import ToolCallRecord, VerdictContext
 from adrian.ws import WebSocketClient
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __all__ = [
     "init",
     "shutdown",
@@ -763,20 +763,35 @@ def _patch_langgraph() -> None:
 def _extract_tool_calls(
     state: dict[str, Any] | list[BaseMessage],
 ) -> list[dict[str, str]]:
-    """Extract tool_calls from the last AIMessage in ToolNode state.
+    """Extract tool_calls from the ToolNode input.
 
-    LangGraph's ``ToolNode.ainvoke`` accepts two input shapes: a state
-    dict whose ``"messages"`` key holds the message list, or a bare
-    list of messages.  We handle both.
+    ``ToolNode`` is reached with three input shapes:
+    1. a state dict whose ``"messages"`` key holds the message list
+       (hand-built ``StateGraph`` with ``ToolNode`` as a node), or
+    2. a bare list of messages, or
+    3. a single per-tool-call dict ``{"__type", "tool_call", "state"}``
+       — how langgraph-prebuilt / ``create_react_agent`` dispatch each
+       tool call. The id lives at ``input["tool_call"]["id"]``.
+
+    Shape 3 was previously unhandled: the function returned ``[]``, so the
+    block/HITL gate never found a tool_call_id and ran the tool un-gated.
 
     Args:
-        state: The ToolNode input, a state dict with a ``"messages"``
-            key, or a direct list of ``BaseMessage`` instances.
+        state: The ToolNode input (any of the three shapes above).
 
     Returns:
-        List of tool call dicts from the most recent ``AIMessage``, or
-        an empty list when none is found.
+        List of tool call dicts, or an empty list when none is found.
     """
+    # Shape 3: per-tool-call dispatch (create_react_agent / prebuilt ToolNode).
+    if isinstance(state, dict) and "tool_call" in state:
+        tc = state["tool_call"]
+        if isinstance(tc, dict) and tc.get("id"):
+            return [tc]
+        tc_id = getattr(tc, "id", None)
+        if tc_id:
+            return [{"id": tc_id, "name": getattr(tc, "name", ""), "args": getattr(tc, "args", {})}]
+        return []
+
     if isinstance(state, dict):
         messages = list(state.get("messages") or [])  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
     else:
