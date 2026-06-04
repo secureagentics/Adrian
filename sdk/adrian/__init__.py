@@ -74,7 +74,7 @@ from adrian.session_persistence import resolve_session_id
 from adrian.types import ToolCallRecord, VerdictContext
 from adrian.ws import WebSocketClient
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 __all__ = [
     "init",
     "shutdown",
