@@ -155,9 +155,7 @@ func (s *Store) GetAgent(ctx context.Context, agentID string) (*AgentRow, []*Age
 		 FROM agents a
 		 WHERE a.agent_id = ?`,
 		agentID,
-	).Scan(
-		&r.ID, &firstSeen, &lastSeen, &r.AgentProfileID, &r.AgentProfileName,
-	)
+	).Scan(&r.ID, &firstSeen, &lastSeen, &r.AgentProfileID, &r.AgentProfileName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, ErrNotFound
