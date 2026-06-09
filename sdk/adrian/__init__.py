@@ -74,7 +74,7 @@ from adrian.session_persistence import resolve_session_id
 from adrian.types import ToolCallRecord, VerdictContext
 from adrian.ws import WebSocketClient
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 __all__ = [
     "init",
     "shutdown",
@@ -231,10 +231,12 @@ def init(
 
     resolved_key = api_key or os.getenv("ADRIAN_API_KEY") or None
     resolved_file = Path(os.getenv("ADRIAN_LOG_FILE", str(log_file)))
-    # Default to a local self-hosted backend (the one `make dev` brings
-    # up at deploy/compose.yaml). OSS users pointing at a remote
-    # deployment override via ws_url= or ADRIAN_WS_URL.
-    resolved_ws_url = os.getenv("ADRIAN_WS_URL") or ws_url or "ws://localhost:8080/ws"
+    # Default to the hosted Adrian backend so `adrian.init(api_key=...)`
+    # Just Works for freemium users. Self-hosted users override via
+    # ws_url= or ADRIAN_WS_URL.
+    resolved_ws_url = (
+        os.getenv("ADRIAN_WS_URL") or ws_url or "wss://adrian.secureagentics.ai/ws"
+    )
     resolved_session = (
         os.getenv("ADRIAN_SESSION_ID") or session_id or resolve_session_id()
     )
@@ -512,23 +514,6 @@ def _inject_callbacks(config: Any) -> Any:  # noqa: ANN401
 # ------------------------------------------------------------------
 
 
-def _warn_unsupported_frameworks() -> None:
-    """Warn when raw openai SDK is used without a patchable framework."""
-    import importlib.util
-
-    if importlib.util.find_spec("openai") is not None:
-        # Only warn if openai is present without langchain
-        if importlib.util.find_spec("langchain_core") is None:
-            logger.warning(
-                "Detected raw openai SDK without LangChain/LangGraph. "
-                "Adrian's pre-execution block gate requires a supported "
-                "framework (LangGraph ToolNode or LangChain AgentExecutor). "
-                "Tool calls from raw openai loops are OBSERVED but NOT "
-                "pre-blocked in MODE_BLOCK. "
-                "See https://docs.adrian.secureagentics.ai/supported-frameworks"
-            )
-
-
 def _auto_instrument_langchain() -> None:
     """Apply all monkey-patches to LangChain / LangGraph."""
     try:
@@ -537,8 +522,8 @@ def _auto_instrument_langchain() -> None:
         _patch_chat_model()
         _patch_langgraph()
         _patch_tool_node()
+        _patch_base_tool()
         _patch_agent_executor()
-        _warn_unsupported_frameworks()
         logger.debug("LangChain auto-instrumentation applied")
     except ImportError:
         logger.debug("LangChain not found, skipping auto-instrumentation")
@@ -583,7 +568,6 @@ def _patch_runnable() -> None:
         config: Any = None,  # noqa: ANN401
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """AgentExecutor calls astream on the agent chain by default."""
         config = _inject_callbacks(config)
         async for chunk in original_astream(self, input, config, **kwargs):
             yield chunk
@@ -602,7 +586,7 @@ def _patch_runnable() -> None:
     Runnable.astream = patched_astream  # type: ignore[assignment]
     Runnable.stream = patched_stream  # type: ignore[assignment]
     Runnable._adrian_patched = True  # type: ignore[attr-defined]
-    logger.debug("Patched Runnable.invoke / ainvoke / astream / stream")
+    logger.debug("Patched Runnable.invoke / ainvoke")
 
 
 # --- 2. CallbackManager ---
@@ -724,7 +708,7 @@ def _patch_chat_model() -> None:
     BaseChatModel.astream = patched_astream  # type: ignore[assignment]
     BaseChatModel.stream = patched_stream  # type: ignore[assignment]
     BaseChatModel._adrian_chat_model_patched = True  # type: ignore[attr-defined]
-    logger.debug("Patched BaseChatModel.invoke / ainvoke / astream / stream")
+    logger.debug("Patched BaseChatModel.invoke / ainvoke")
 
 
 # --- 4. LangGraph Pregel ---
@@ -815,130 +799,34 @@ def _patch_langgraph() -> None:
     logger.debug("Patched Pregel.invoke / ainvoke / astream")
 
 
-# --- 5. ToolNode ---
-
-
-def _extract_tool_calls(
-    state: dict[str, Any] | list[BaseMessage] | Any,
-) -> list[dict[str, str]]:
-    """Extract tool_calls from ToolNode input (state dict, message list, or per-tool-call dict)."""
-    if isinstance(state, dict) and "tool_call" in state:
-        tc = state["tool_call"]
-        if isinstance(tc, dict) and tc.get("id"):
-            return [tc]
-        if hasattr(tc, "id") and tc.id:
-            return [{"id": tc.id, "name": getattr(tc, "name", ""), "args": getattr(tc, "args", {})}]
-
-    if isinstance(state, dict):
-        messages = list(state.get("messages") or [])  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
-    elif isinstance(state, list):
-        messages = list(state)
-    else:
-        return []
-
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            return msg.tool_calls  # type: ignore[no-any-return]
-
-    return []
+# --- 5. ToolNode (callback injection only — gate is on BaseTool) ---
 
 
 def _should_halt(verdict: pb.Verdict) -> bool:
     """Decide whether a verdict should halt tool execution.
 
-    HITL resolutions override the per-MAD policy scope check.
+    HITL resolutions override per-MAD policy when present.
     """
     if verdict.HasField("hitl"):
         return not verdict.hitl.continue_execution
 
     mad_prefix = verdict.mad_code[:2]
-    in_scope = {
+    return {
         "M0": verdict.policy.policy_m0,
         "M2": verdict.policy.policy_m2,
         "M3": verdict.policy.policy_m3,
         "M4": verdict.policy.policy_m4,
     }.get(mad_prefix, False)
 
-    return in_scope
-
-
-def _build_blocked_response(
-    tool_calls: list[dict[str, str]],
-) -> dict[str, list[ToolMessage]]:
-    """Build synthetic ToolMessage responses for blocked tool calls."""
-    blocked_messages: list[ToolMessage] = [
-        ToolMessage(
-            content="[BLOCKED by security policy]",
-            tool_call_id=str(tc.get("id", "")),
-            name=str(tc.get("name", "")),
-        )
-        for tc in tool_calls
-    ]
-
-    return {"messages": blocked_messages}
-
-
-async def _adrian_tool_gate(
-    input: Any,  # noqa: A002, ANN401
-) -> tuple[str, dict[str, Any] | None]:
-    """Pre-execution verdict gate. Returns ("halt", response), ("proceed", None), or ("skip", None)."""
-    ws = _ws_client
-
-    if ws is None:
-        return ("skip", None)
-
-    if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
-        try:
-            await asyncio.wait_for(
-                ws._login_ack_received.wait(),  # pyright: ignore[reportPrivateUsage]
-                timeout=5.0,
-            )
-        except TimeoutError:
-            logger.warning(
-                "ToolNode: LoginAck not received within 5s; halting "
-                "(refusing to run a tool without a verified policy)"
-            )
-            return ("halt", _build_blocked_response(_extract_tool_calls(input)))
-
-    if not ws.policy_active():
-        return ("skip", None)
-
-    tool_calls = _extract_tool_calls(input)
-    tool_call_id = next(
-        (tc.get("id") for tc in tool_calls if tc.get("id")),
-        None,
-    )
-
-    if not tool_call_id:
-        return ("skip", None)
-
-    cfg = _get_config()
-    timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-
-    verdict = await ws.wait_for_tool_call_verdict(tool_call_id, timeout)
-
-    if verdict is None:
-        logger.warning(
-            "verdict timeout for tool_call_id=%s, fail-open",
-            tool_call_id,
-        )
-        return ("skip", None)
-
-    if _should_halt(verdict):
-        logger.warning(
-            "halting tool execution for event_id=%s mad_code=%s",
-            verdict.event_id,
-            verdict.mad_code,
-        )
-        return ("halt", _build_blocked_response(tool_calls))
-
-    return ("proceed", None)
-
 
 def _patch_tool_node() -> None:
-    """Patch ToolNode._afunc with the verdict gate, and public methods for callback injection.
+    """Patch ToolNode for callback injection + async verdict gate.
 
-    _afunc is the only reliable intercept -- Pregel bypasses ainvoke/astream entirely.
+    ToolNode dispatches tools via tool.invoke (sync) even within async
+    Pregel. BaseTool.invoke can't await a verdict from the event loop
+    thread, so we add the verdict gate here on ToolNode.ainvoke — the
+    entry point Pregel calls before tool dispatch begins. This is a
+    complementary gate to BaseTool (which covers direct callers).
     """
     try:
         from langgraph.prebuilt import ToolNode
@@ -951,21 +839,216 @@ def _patch_tool_node() -> None:
     original_invoke = ToolNode.invoke
     original_ainvoke = ToolNode.ainvoke
     original_astream = getattr(ToolNode, "astream", None)
-    original_stream = getattr(ToolNode, "stream", None)
-    original_afunc = ToolNode._afunc  # type: ignore[attr-defined]
 
-    async def patched_afunc(
-        self: Any,  # noqa: ANN401
-        input: Any,  # noqa: A002, ANN401
-        config: Any = None,  # noqa: ANN401
-        runtime: Any = None,  # noqa: ANN401
+    def _extract_tool_call_ids(state: Any) -> list[str]:  # noqa: ANN401
+        """Extract tool_call_ids from ToolNode input (any shape)."""
+        # Shape 3: per-tool-call dict from _afunc dispatch
+        if isinstance(state, dict) and "tool_call" in state:
+            tc = state["tool_call"]
+            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            return [tc_id] if tc_id else []
+        # Shape 1/2: state dict or message list
+        messages = (
+            list(state.get("messages") or [])
+            if isinstance(state, dict)
+            else list(state)
+            if isinstance(state, list)
+            else []
+        )
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                return [tc.get("id") for tc in msg.tool_calls if tc.get("id")]
+        return []
+
+    async def _gate_tool_calls(state: Any) -> bool:  # noqa: ANN401
+        """Returns True if tools should be BLOCKED."""
+        ws = _ws_client
+        if ws is None:
+            return False
+        if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+            try:
+                await asyncio.wait_for(ws._login_ack_received.wait(), timeout=5.0)  # pyright: ignore[reportPrivateUsage]
+            except TimeoutError:
+                logger.warning("ToolNode: LoginAck not received within 5s; blocking")
+                return True
+        if not ws.policy_active():
+            return False
+
+        tc_ids = _extract_tool_call_ids(state)
+        if not tc_ids:
+            return False
+
+        cfg = _get_config()
+        timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
+        # Gate on the first tool_call_id (all come from the same LLM turn)
+        verdict = await ws.wait_for_tool_call_verdict(tc_ids[0], timeout)
+        if verdict is None:
+            logger.warning("ToolNode: verdict timeout, blocking (fail-closed)")
+            return True
+        if _should_halt(verdict):
+            logger.warning(
+                "halting tool execution for event_id=%s mad_code=%s",
+                verdict.event_id,
+                verdict.mad_code,
+            )
+            return True
+        return False
+
+    def _build_blocked(state: Any) -> dict[str, list[ToolMessage]]:  # noqa: ANN401
+        tc_ids = _extract_tool_call_ids(state)
+        return {
+            "messages": [
+                ToolMessage(
+                    content="[BLOCKED by security policy]", tool_call_id=tid, name=""
+                )
+                for tid in tc_ids
+            ]
+        }
+
+    def patched_invoke(
+        self: Any,
+        input: Any,
+        config: Any = None,
+        **kwargs: Any,  # noqa: A002, ANN401
     ) -> Any:  # noqa: ANN401
-        """Verdict gate on ToolNode._afunc."""
-        decision, blocked = await _adrian_tool_gate(input)
-        if decision == "halt":
-            return blocked
+        config = _inject_callbacks(config)
+        return original_invoke(self, input, config=config, **kwargs)
 
-        return await original_afunc(self, input, config=config, runtime=runtime)
+    async def patched_ainvoke(
+        self: Any,
+        input: Any,
+        config: Any = None,
+        **kwargs: Any,  # noqa: A002, ANN401
+    ) -> Any:  # noqa: ANN401
+        config = _inject_callbacks(config)
+        if await _gate_tool_calls(input):
+            return _build_blocked(input)
+        return await original_ainvoke(self, input, config=config, **kwargs)
+
+    async def patched_astream(
+        self: Any,
+        input: Any,
+        config: Any = None,
+        **kwargs: Any,  # noqa: A002, ANN401
+    ) -> Any:  # noqa: ANN401
+        config = _inject_callbacks(config)
+        if await _gate_tool_calls(input):
+            yield _build_blocked(input)
+            return
+        async for chunk in original_astream(self, input, config=config, **kwargs):
+            yield chunk
+
+    ToolNode.invoke = patched_invoke  # type: ignore[assignment]
+    ToolNode.ainvoke = patched_ainvoke  # type: ignore[assignment]
+    if original_astream is not None:
+        ToolNode.astream = patched_astream  # type: ignore[assignment]
+    ToolNode._adrian_tool_node_patched = True  # type: ignore[attr-defined]
+    logger.debug("Patched ToolNode.invoke / ainvoke / astream")
+
+
+# --- 6. BaseTool (universal verdict gate) ---
+
+
+_BLOCKED_CONTENT = "[BLOCKED by security policy]"
+
+
+def _patch_base_tool() -> None:
+    """Patch ``BaseTool.invoke`` and ``BaseTool.ainvoke`` with the verdict gate.
+
+    Every LangChain tool — whether dispatched by ToolNode, AgentExecutor,
+    create_react_agent, or a manual ``tool.invoke(tool_call)`` loop —
+    funnels through ``BaseTool.invoke`` (sync) or ``BaseTool.ainvoke``
+    (async). Gating here covers all frameworks in one place.
+
+    The gate extracts ``tool_call_id`` from the input (a ``ToolCall``
+    TypedDict), awaits the classifier verdict for the producing LLM
+    event, and returns a ``[BLOCKED]`` string instead of running the
+    tool body when the verdict is in-scope (M3/M4 under MODE_BLOCK).
+
+    In MODE_BLOCK, verdict timeout is fail-closed (block the tool)
+    because the absence of a verdict in block mode is a policy violation.
+    In MODE_ALERT, no gate fires at all (skip).
+    """
+    from langchain_core.tools import BaseTool
+    from langchain_core.tools.base import _is_tool_call  # pyright: ignore[reportPrivateUsage]
+
+    if getattr(BaseTool, "_adrian_base_tool_patched", False):
+        return
+
+    original_invoke = BaseTool.invoke
+    original_ainvoke = BaseTool.ainvoke
+
+    def _extract_tool_call_id(input: Any) -> str | None:  # noqa: A002, ANN401
+        """Extract tool_call_id from a ToolCall input, or None."""
+        if isinstance(input, dict) and _is_tool_call(input):
+            return input.get("id")
+        return None
+
+    async def _async_gate(tool_call_id: str) -> bool:
+        """Returns True if the tool should be BLOCKED."""
+        ws = _ws_client
+        if ws is None:
+            return False
+
+        if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+            try:
+                await asyncio.wait_for(
+                    ws._login_ack_received.wait(),  # pyright: ignore[reportPrivateUsage]
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "BaseTool: LoginAck not received within 5s; "
+                    "blocking tool (refusing to run without verified policy)"
+                )
+                return True
+
+        if not ws.policy_active():
+            return False
+
+        cfg = _get_config()
+        timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
+        verdict = await ws.wait_for_tool_call_verdict(tool_call_id, timeout)
+
+        if verdict is None:
+            # Fail-closed in block mode: no verdict = block.
+            logger.warning(
+                "BaseTool: verdict timeout for tool_call_id=%s; "
+                "blocking (fail-closed in MODE_BLOCK)",
+                tool_call_id,
+            )
+            return True
+
+        if _should_halt(verdict):
+            logger.warning(
+                "halting tool execution for event_id=%s mad_code=%s",
+                verdict.event_id,
+                verdict.mad_code,
+            )
+            return True
+
+        return False
+
+    def _sync_gate(tool_call_id: str) -> bool:
+        """Sync verdict gate for pure-sync callers (no running event loop).
+
+        When called from within an async loop (ToolNode._func dispatched
+        by Pregel), this cannot work — use the ToolNode.ainvoke gate
+        instead. Returns False (skip) when a running loop is detected.
+        """
+        ws = _ws_client
+        if ws is None or not ws._login_ack_received.is_set() or not ws.policy_active():  # pyright: ignore[reportPrivateUsage]
+            return False
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Can't block the event loop thread. The ToolNode.ainvoke
+                # gate handles this path.
+                return False
+            return loop.run_until_complete(_async_gate(tool_call_id))
+        except RuntimeError:
+            return False
 
     def patched_invoke(
         self: Any,  # noqa: ANN401
@@ -973,9 +1056,10 @@ def _patch_tool_node() -> None:
         config: Any = None,  # noqa: ANN401
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """Inject Adrian callbacks into ToolNode.invoke."""
         config = _inject_callbacks(config)
-
+        tc_id = _extract_tool_call_id(input)
+        if tc_id and _sync_gate(tc_id):
+            return _BLOCKED_CONTENT
         return original_invoke(self, input, config=config, **kwargs)
 
     async def patched_ainvoke(
@@ -984,43 +1068,46 @@ def _patch_tool_node() -> None:
         config: Any = None,  # noqa: ANN401
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """Inject Adrian callbacks into ToolNode.ainvoke."""
         config = _inject_callbacks(config)
-
+        tc_id = _extract_tool_call_id(input)
+        if tc_id and await _async_gate(tc_id):
+            return _BLOCKED_CONTENT
         return await original_ainvoke(self, input, config=config, **kwargs)
 
-    async def patched_astream(
+    original_arun = BaseTool.arun
+
+    async def patched_arun(
         self: Any,  # noqa: ANN401
-        input: Any,  # noqa: A002, ANN401
-        config: Any = None,  # noqa: ANN401
+        tool_input: Any,  # noqa: ANN401
+        *args: Any,
+        tool_call_id: str | None = None,
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """Inject Adrian callbacks into ToolNode.astream."""
-        config = _inject_callbacks(config)
+        """Gate on arun — AgentExecutor calls tool.arun directly."""
+        if tool_call_id and await _async_gate(tool_call_id):
+            return _BLOCKED_CONTENT
+        return await original_arun(
+            self, tool_input, *args, tool_call_id=tool_call_id, **kwargs
+        )
 
-        async for chunk in original_astream(self, input, config=config, **kwargs):
-            yield chunk
-
-    ToolNode._afunc = patched_afunc  # type: ignore[attr-defined]
-    ToolNode.invoke = patched_invoke  # type: ignore[assignment]
-    ToolNode.ainvoke = patched_ainvoke  # type: ignore[assignment]
-    if original_astream is not None:
-        ToolNode.astream = patched_astream  # type: ignore[assignment]
-    ToolNode._adrian_tool_node_patched = True  # type: ignore[attr-defined]
-    logger.debug("Patched ToolNode._afunc / invoke / ainvoke / astream")
-
-
-# --- 6. AgentExecutor (langchain / langchain-classic) ---
+    BaseTool.invoke = patched_invoke  # type: ignore[assignment]
+    BaseTool.ainvoke = patched_ainvoke  # type: ignore[assignment]
+    BaseTool.arun = patched_arun  # type: ignore[assignment]
+    BaseTool._adrian_base_tool_patched = True  # type: ignore[attr-defined]
+    logger.debug("Patched BaseTool.invoke / ainvoke / arun (universal verdict gate)")
 
 
-_BLOCKED_OBSERVATION = "[BLOCKED by security policy]"
+# --- 7. AgentExecutor (tool_call_id on agent_action, not on tool.arun) ---
 
 
 def _patch_agent_executor() -> None:
-    """Patch AgentExecutor tool dispatch with the verdict gate.
+    """Patch AgentExecutor._aperform_agent_action for the executor path.
 
-    Covers the legacy AgentExecutor path which bypasses ToolNode entirely.
-    Falls through for ReAct parsers that don't emit tool_call_id.
+    AgentExecutor calls tool.arun without forwarding tool_call_id,
+    so the BaseTool.arun gate can't extract it. The tool_call_id lives
+    on agent_action.tool_call_id (set by OpenAI-style parsers). We
+    intercept here, await the verdict, and return a blocked observation
+    instead of calling the tool.
     """
     AgentExecutor = None
     AgentStep = None
@@ -1036,142 +1123,46 @@ def _patch_agent_executor() -> None:
 
     if AgentExecutor is None or AgentStep is None:
         return
-
     if getattr(AgentExecutor, "_adrian_executor_patched", False):
         return
 
     original_aperform = AgentExecutor._aperform_agent_action
-    original_perform = AgentExecutor._perform_agent_action
 
     async def patched_aperform(
-        self: Any,  # noqa: ANN401
-        name_to_tool_map: Any,  # noqa: ANN401
+        self: Any,
+        name_to_tool_map: Any,
         color_mapping: Any,  # noqa: ANN401
-        agent_action: Any,  # noqa: ANN401
+        agent_action: Any,
         run_manager: Any = None,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
-        """Verdict gate before AgentExecutor dispatches a tool (async)."""
-        tool_call_id = getattr(agent_action, "tool_call_id", None)
-
-        if tool_call_id:
+        tc_id = getattr(agent_action, "tool_call_id", None)
+        if tc_id:
             ws = _ws_client
-
-            if ws is not None:
-                if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
-                    try:
-                        await asyncio.wait_for(
-                            ws._login_ack_received.wait(),  # pyright: ignore[reportPrivateUsage]
-                            timeout=5.0,
-                        )
-                    except TimeoutError:
-                        logger.warning(
-                            "AgentExecutor: LoginAck not received within 5s; "
-                            "blocking tool %s",
-                            agent_action.tool,
-                        )
-                        return AgentStep(
-                            action=agent_action,
-                            observation=_BLOCKED_OBSERVATION,
-                        )
-
-                if ws.policy_active():
-                    cfg = _get_config()
-                    # Short timeout: AgentExecutor LLM callbacks may not propagate,
-                    # so verdicts may never arrive.
-                    cfg = _get_config()
-                    timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-                    verdict = await ws.wait_for_tool_call_verdict(
-                        tool_call_id, timeout,
+            if (
+                ws is not None
+                and ws._login_ack_received.is_set()
+                and ws.policy_active()
+            ):  # pyright: ignore[reportPrivateUsage]
+                cfg = _get_config()
+                timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
+                verdict = await ws.wait_for_tool_call_verdict(tc_id, timeout)
+                if verdict is None:
+                    logger.warning(
+                        "AgentExecutor: verdict timeout for tool_call_id=%s, blocking (fail-closed)",
+                        tc_id,
                     )
-
-                    if verdict is not None and _should_halt(verdict):
-                        logger.warning(
-                            "halting tool execution for event_id=%s "
-                            "mad_code=%s (AgentExecutor path)",
-                            verdict.event_id,
-                            verdict.mad_code,
-                        )
-                        return AgentStep(
-                            action=agent_action,
-                            observation=_BLOCKED_OBSERVATION,
-                        )
-
-                    if verdict is None:
-                        logger.warning(
-                            "AgentExecutor: verdict timeout for "
-                            "tool_call_id=%s, fail-open",
-                            tool_call_id,
-                        )
-
+                    return AgentStep(action=agent_action, observation=_BLOCKED_CONTENT)
+                if _should_halt(verdict):
+                    logger.warning(
+                        "halting tool execution for event_id=%s mad_code=%s",
+                        verdict.event_id,
+                        verdict.mad_code,
+                    )
+                    return AgentStep(action=agent_action, observation=_BLOCKED_CONTENT)
         return await original_aperform(
-            self, name_to_tool_map, color_mapping, agent_action, run_manager,
-        )
-
-    def patched_perform(
-        self: Any,  # noqa: ANN401
-        name_to_tool_map: Any,  # noqa: ANN401
-        color_mapping: Any,  # noqa: ANN401
-        agent_action: Any,  # noqa: ANN401
-        run_manager: Any = None,  # noqa: ANN401
-    ) -> Any:  # noqa: ANN401
-        """Verdict gate before AgentExecutor dispatches a tool (sync)."""
-        tool_call_id = getattr(agent_action, "tool_call_id", None)
-
-        if tool_call_id:
-            ws = _ws_client
-
-            if ws is not None and ws._login_ack_received.is_set() and ws.policy_active():  # pyright: ignore[reportPrivateUsage]
-                import concurrent.futures
-
-                async def _gate() -> bool:
-                    cfg = _get_config()
-                    timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-                    verdict = await ws.wait_for_tool_call_verdict(
-                        tool_call_id, timeout,
-                    )
-                    if verdict is not None and _should_halt(verdict):
-                        logger.warning(
-                            "halting tool execution for event_id=%s "
-                            "mad_code=%s (AgentExecutor sync path)",
-                            verdict.event_id,
-                            verdict.mad_code,
-                        )
-                        return True
-                    return False
-
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        future: concurrent.futures.Future[bool] = concurrent.futures.Future()
-
-                        async def _run() -> None:
-                            try:
-                                result = await _gate()
-                                future.set_result(result)
-                            except Exception as exc:
-                                future.set_exception(exc)
-
-                        loop.create_task(_run())
-                        should_block = future.result(timeout=35)
-                    else:
-                        should_block = loop.run_until_complete(_gate())
-
-                    if should_block:
-                        return AgentStep(
-                            action=agent_action,
-                            observation=_BLOCKED_OBSERVATION,
-                        )
-                except Exception:
-                    logger.debug(
-                        "AgentExecutor sync gate failed, falling through",
-                        exc_info=True,
-                    )
-
-        return original_perform(
-            self, name_to_tool_map, color_mapping, agent_action, run_manager,
+            self, name_to_tool_map, color_mapping, agent_action, run_manager
         )
 
     AgentExecutor._aperform_agent_action = patched_aperform  # type: ignore[assignment]
-    AgentExecutor._perform_agent_action = patched_perform  # type: ignore[assignment]
     AgentExecutor._adrian_executor_patched = True  # type: ignore[attr-defined]
-    logger.debug("Patched AgentExecutor._aperform_agent_action / _perform_agent_action")
+    logger.debug("Patched AgentExecutor._aperform_agent_action")
