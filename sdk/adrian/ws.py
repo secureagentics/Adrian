@@ -599,7 +599,8 @@ class WebSocketClient:
 
         if ws is None:
             self._buffer_frame(frame_bytes)
-            self._ensure_connect_task()
+            if not self._connected.is_set():
+                self._ensure_connect_task()
 
             return
 
