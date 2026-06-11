@@ -9,7 +9,7 @@ name: SDK Lint
 on:
   pull_request:
     paths:
-      - "sdk/**"
+      - "sdk/python/**"
       - "scripts/**"
       - ".github/workflows/sdk-lint.yml"
 
@@ -22,16 +22,16 @@ jobs:
         with:
           enable-cache: true
       # Install into a repo-root .venv (same as `make sdk-install`), which
-      # is where sdk/pyrightconfig.json's `venvPath: ".."` expects it. A
-      # sdk/.venv (uv sync --project) would make basedpyright fail to find
-      # the venv and exit 3.
+      # is where sdk/python/pyrightconfig.json's `venvPath: "../.."` expects
+      # it. A sdk/python/.venv (uv sync --project) would make basedpyright
+      # fail to find the venv and exit 3.
       - name: Install SDK + dev deps
         run: |
           uv venv
-          uv pip install -e "./sdk[dev]"
+          uv pip install -e "./sdk/python[dev]"
       - name: Ruff format
-        run: .venv/bin/ruff format --check sdk scripts
+        run: .venv/bin/ruff format --check sdk/python scripts
       - name: Ruff lint
-        run: .venv/bin/ruff check sdk scripts
+        run: .venv/bin/ruff check sdk/python scripts
       - name: Basedpyright
-        run: .venv/bin/basedpyright -p sdk sdk/adrian
+        run: .venv/bin/basedpyright -p sdk/python sdk/python/adrian
