@@ -23,7 +23,8 @@ type Event struct {
 	TokensUsed     int32
 }
 
-// EventListRow is the read shape (with agent_name joined).
+// EventListRow is the read shape (with agent_name joined and the latest
+// verdict when one exists).
 type EventListRow struct {
 	ID             string
 	SessionID      string
@@ -35,6 +36,9 @@ type EventListRow struct {
 	PayloadJSON    string
 	TokensUsed     int32
 	CreatedAt      time.Time
+	VerdictID      string
+	MADCode        string
+	Classification string
 }
 
 // TimelineRow is one entry in a session timeline: an event with its
@@ -103,9 +107,14 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilters, perPage, offset 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT e.id, e.session_id, COALESCE(e.agent_id, ''), e.agent_profile_id,
 		        COALESCE(ap.name, ''), e.event_type, COALESCE(e.run_id, ''),
-		        e.payload, e.tokens_used, e.created_at
+		        e.created_at,
+		        COALESCE(v.id, ''), COALESCE(v.mad_code, ''), COALESCE(v.classification, '')
 		 FROM events e
 		 LEFT JOIN agent_profiles ap ON ap.id = e.agent_profile_id
+		 LEFT JOIN verdicts v ON v.event_id = e.id
+		     AND v.created_at = (
+		         SELECT max(v2.created_at) FROM verdicts v2 WHERE v2.event_id = e.id
+		     )
 		 WHERE `+where+`
 		 ORDER BY e.created_at DESC
 		 LIMIT ? OFFSET ?`, args...)
@@ -157,7 +166,8 @@ func scanEventListRow(rows *sql.Rows) (*EventListRow, error) {
 	var agentProfileID sql.NullString
 	var createdAt string
 	if err := rows.Scan(&r.ID, &r.SessionID, &r.AgentID, &agentProfileID, &r.AgentName,
-		&r.EventType, &r.RunID, &r.PayloadJSON, &r.TokensUsed, &createdAt); err != nil {
+		&r.EventType, &r.RunID, &createdAt,
+		&r.VerdictID, &r.MADCode, &r.Classification); err != nil {
 		return nil, err
 	}
 	if agentProfileID.Valid {
