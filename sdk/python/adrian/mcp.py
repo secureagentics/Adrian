@@ -26,7 +26,6 @@ an existing user-named entry for the same ``(transport, endpoint)``.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import logging
 import sys
 from collections.abc import Mapping
@@ -180,11 +179,11 @@ def _patch_mcp_adapter() -> None:  # pyright: ignore[reportUnusedFunction]
 def _patch_langchain_mcp_adapters() -> None:
     """Patch ``MultiServerMCPClient.__init__`` to snapshot declarations."""
     try:
-        client_mod = importlib.import_module("langchain_mcp_adapters.client")
+        from langchain_mcp_adapters import client as client_mod
     except ImportError:
         return
 
-    cls = cast("Any", getattr(client_mod, "MultiServerMCPClient", None))
+    cls = getattr(client_mod, "MultiServerMCPClient", None)
 
     if cls is None or getattr(cls, "_adrian_mcp_patched", False):
         return

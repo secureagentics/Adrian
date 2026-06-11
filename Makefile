@@ -1,10 +1,10 @@
 # Adrian OSS — top-level developer Makefile
 #
 # Local-dev convention: every Python entry point goes through the
-# project-local ``.venv`` so the bundled Python SDK install (``pip
-# install -e ./sdk/python``) cannot collide with a system-wide ``adrian-sdk``
-# wheel from PyPI. ``make sdk-install`` creates the venv and the
-# editable install in one shot.
+# project-local ``.venv`` so the bundled ``sdk/python/`` install (``pip
+# install -e ./sdk/python``) cannot collide with a system-wide
+# ``adrian-sdk`` wheel from PyPI. ``make sdk-install`` creates the venv
+# and the editable install in one shot.
 
 .PHONY: sdk-install sdk-test sdk-clean help
 
@@ -24,7 +24,7 @@ endif
 	@echo "Or run anything via uv: 'uv run python ...'"
 
 sdk-test: ## Run the bundled SDK test suite
-	uv run --project ./sdk/python --extra dev pytest sdk/python/tests
+	uv run --project ./sdk/python pytest sdk/python/tests
 
 sdk-clean: ## Remove .venv and SDK build artefacts
 	rm -rf .venv sdk/python/.venv sdk/python/dist sdk/python/build sdk/python/*.egg-info
