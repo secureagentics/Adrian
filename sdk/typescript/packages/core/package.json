@@ -21,8 +21,7 @@
     }
   },
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ],
   "scripts": {
     "build": "tsup src/index.ts src/capture/index.ts --format esm,cjs --clean && tsc -p tsconfig.build.json",
