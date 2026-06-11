@@ -337,9 +337,11 @@ def init(
         if loop is not None:
             _ws_client.schedule_connect(loop)
         else:
-            logger.debug(
-                "No running event loop at init(); WebSocket will connect on "
-                "first send from within an async context."
+            logger.warning(
+                "Adrian initialised without a running event loop. WebSocket "
+                "transport and BLOCK/HITL verdict handling may not be active "
+                "yet; sync ToolNode.invoke will fail closed until an event "
+                "loop connects the WebSocket and receives a policy LoginAck."
             )
 
     if auto_instrument:
@@ -849,13 +851,110 @@ def _build_blocked_response(
     return {"messages": blocked_messages}
 
 
+def _resolved_tool_call_verdict(
+    ws: WebSocketClient,
+    tool_call_id: str,
+) -> tuple[pb.Verdict | None, bool]:
+    """Return an already-resolved verdict for ``tool_call_id`` if one exists."""
+    event_id = ws._tool_call_id_to_event_id.get(tool_call_id)  # pyright: ignore[reportPrivateUsage]
+
+    if event_id is None:
+        return None, False
+
+    fut = ws._pending_verdicts.get(event_id)  # pyright: ignore[reportPrivateUsage]
+
+    if fut is None or not fut.done():
+        return None, False
+
+    try:
+        return fut.result(), True
+    except asyncio.CancelledError:
+        logger.warning(
+            "ToolNode: resolved sync verdict future was cancelled; halting "
+            "tool_call_id=%s event_id=%s",
+            tool_call_id,
+            event_id,
+        )
+        return None, False
+    except Exception:
+        logger.exception(
+            "ToolNode: resolved sync verdict future failed; halting "
+            "tool_call_id=%s event_id=%s",
+            tool_call_id,
+            event_id,
+        )
+        return None, False
+    finally:
+        ws._pending_verdicts.pop(event_id, None)  # pyright: ignore[reportPrivateUsage]
+
+
+def _sync_tool_node_policy_gate(input: Any) -> dict[str, list[ToolMessage]] | None:  # noqa: ANN401
+    """Apply the BLOCK / HITL ToolNode gate from the sync invoke path.
+
+    Returns a synthetic blocked response when execution should halt, or
+    ``None`` when the original ToolNode should run.
+    """
+    ws = _ws_client
+
+    if ws is None:
+        return None
+
+    tool_calls = _extract_tool_calls(input)
+
+    if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+        logger.warning(
+            "ToolNode: LoginAck not received in sync invoke; halting "
+            "(refusing to run a tool without a verified policy)"
+        )
+        return _build_blocked_response(tool_calls)
+
+    if not ws.policy_active():
+        return None
+
+    tool_call_id = next(
+        (tc.get("id") for tc in tool_calls if tc.get("id")),
+        None,
+    )
+
+    if not tool_call_id:
+        return None
+
+    verdict, resolved = _resolved_tool_call_verdict(ws, tool_call_id)
+
+    if not resolved:
+        logger.warning(
+            "ToolNode: sync invoke cannot wait for a BLOCK/HITL verdict; "
+            "halting tool_call_id=%s",
+            tool_call_id,
+        )
+        return _build_blocked_response(tool_calls)
+
+    if verdict is None:
+        logger.warning(
+            "ToolNode: sync invoke resolved an empty verdict; halting "
+            "tool_call_id=%s",
+            tool_call_id,
+        )
+        return _build_blocked_response(tool_calls)
+
+    if _should_halt(verdict):
+        logger.warning(
+            "halting tool execution for event_id=%s mad_code=%s",
+            verdict.event_id,
+            verdict.mad_code,
+        )
+        return _build_blocked_response(tool_calls)
+
+    return None
+
+
 def _patch_tool_node() -> None:
     """Patch ``ToolNode.invoke`` / ``ainvoke``.
 
-    In block mode, the async patch waits for the preceding LLM's verdict
-    before executing tools.  On BLOCK (unless overridden by ``on_block``)
-    it returns synthetic ``ToolMessage`` responses instead of running the
-    tools.  On timeout it fails open.
+    The async path waits for the preceding LLM's verdict before executing
+    tools. The sync path consumes already-resolved verdicts only; when
+    policy/verdict state is unavailable it fails closed because the SDK
+    cannot safely run the WebSocket wait without a running event loop.
     """
     try:
         from langgraph.prebuilt import ToolNode
@@ -874,9 +973,12 @@ def _patch_tool_node() -> None:
         config: Any = None,  # noqa: ANN401
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """Inject Adrian callbacks into sync ToolNode invocation."""
+        """Inject Adrian callbacks; in BLOCK / HITL modes gate sync tools."""
         config = _inject_callbacks(config)
+        blocked = _sync_tool_node_policy_gate(input)
 
+        if blocked is not None:
+            return blocked
         return original_invoke(self, input, config=config, **kwargs)
 
     async def patched_ainvoke(

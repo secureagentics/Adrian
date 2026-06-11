@@ -95,6 +95,17 @@ def _tool_pair() -> PairedEvent:
     )
 
 
+def _resolved_verdict_future(verdict: pb.Verdict) -> asyncio.Future[pb.Verdict]:
+    """Build a completed future for sync ToolNode.invoke tests."""
+    loop = asyncio.new_event_loop()
+    try:
+        fut: asyncio.Future[pb.Verdict] = loop.create_future()
+        fut.set_result(verdict)
+        return fut
+    finally:
+        loop.close()
+
+
 class TestRunIdCorrelation:
     async def test_llm_pair_populates_run_id_map(self) -> None:
         mock_ws = AsyncMock()
@@ -185,6 +196,120 @@ class TestToolNodePatchBlocking:
         assert len(msgs) == 1
         assert "BLOCKED" in msgs[0].content
 
+    def test_sync_in_scope_block_verdict_halts_tool(self, tmp_path: Path) -> None:
+        """Sync MODE_BLOCK mirrors async: in-scope blocking verdict halts."""
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for sync block-mode tests."""
+            _real_tool.called = True  # type: ignore[attr-defined]
+
+            return x
+
+        _real_tool.called = False  # type: ignore[attr-defined]
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        ws._pending_verdicts["llm-evt"] = _resolved_verdict_future(
+            pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy),
+        )
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = tool_node.invoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert _real_tool.called is False  # type: ignore[attr-defined]
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert "BLOCKED" in msgs[0].content
+
+    def test_sync_missing_login_ack_halts_tool(self, tmp_path: Path) -> None:
+        """Sync ToolNode.invoke fails closed until server policy is known."""
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for sync block-mode tests."""
+            _real_tool.called = True  # type: ignore[attr-defined]
+
+            return x
+
+        _real_tool.called = False  # type: ignore[attr-defined]
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = tool_node.invoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert _real_tool.called is False  # type: ignore[attr-defined]
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert "BLOCKED" in msgs[0].content
+
+    def test_sync_unresolved_active_policy_halts_tool(self, tmp_path: Path) -> None:
+        """Sync ToolNode.invoke fails closed when it cannot wait for verdicts."""
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for sync block-mode tests."""
+            _real_tool.called = True  # type: ignore[attr-defined]
+
+            return x
+
+        _real_tool.called = False  # type: ignore[attr-defined]
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = tool_node.invoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert _real_tool.called is False  # type: ignore[attr-defined]
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert "BLOCKED" in msgs[0].content
+
     async def test_out_of_scope_verdict_runs_tool(self, tmp_path: Path) -> None:
         """MODE_BLOCK with policy_m2=false + mad_code='M2' → continue (out-of-scope)."""
 
@@ -223,6 +348,44 @@ class TestToolNodePatchBlocking:
         state: dict[str, Any] = {"messages": [ai]}
 
         await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == ["hi"]
+
+    def test_sync_out_of_scope_verdict_runs_tool(self, tmp_path: Path) -> None:
+        """Sync MODE_BLOCK continues when the verdict family is out of scope."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for sync block-mode tests."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)  # m2 stays False
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        ws._pending_verdicts["llm-evt"] = _resolved_verdict_future(
+            pb.Verdict(event_id="llm-evt", mad_code="M2", policy=policy),
+        )
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        tool_node.invoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
 
         assert captured == ["hi"]
 
