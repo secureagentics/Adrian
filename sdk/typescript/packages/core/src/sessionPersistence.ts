@@ -27,8 +27,8 @@ export async function resolveSessionId(cwd = process.cwd()): Promise<string> {
 }
 
 export async function envAwareResolveSessionId(explicit?: string | null, cwd = process.cwd()): Promise<string> {
+  if (explicit !== undefined && explicit !== null) return explicit;
   if (process.env.ADRIAN_SESSION_ID) return process.env.ADRIAN_SESSION_ID;
-  if (explicit) return explicit;
   return resolveSessionId(cwd);
 }
 

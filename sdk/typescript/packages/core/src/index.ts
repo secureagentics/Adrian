@@ -1,4 +1,4 @@
-import { setConfig, type AdrianConfig, type InitOptions } from "./config.js";
+import { resolveInitOptions, setConfig, type AdrianConfig, type InitOptions } from "./config.js";
 import { AgentContextTracker } from "./context.js";
 import { AdrianCallbackHandler } from "./handler.js";
 import { JSONLHandler } from "./handlers/jsonl.js";
@@ -17,20 +17,16 @@ export const __version__ = version;
 let hooks: HookRegistry | null = null;
 
 export async function init(options: InitOptions = {}): Promise<void> {
-  const apiKey = options.apiKey ?? process.env.ADRIAN_API_KEY ?? null;
-  const logFile = process.env.ADRIAN_LOG_FILE ?? options.logFile ?? "events.jsonl";
-  const wsUrl = process.env.ADRIAN_WS_URL ?? options.wsUrl ?? "ws://localhost:8080/ws";
-  const sessionId = await envAwareResolveSessionId(options.sessionId ?? null);
-  const blockTimeout = Number(process.env.ADRIAN_BLOCK_TIMEOUT ?? options.blockTimeout ?? 30);
-  const replayBufferFrames = parseInt(process.env.ADRIAN_REPLAY_BUFFER_FRAMES ?? String(options.replayBufferFrames ?? 1000), 10);
+  const resolved = resolveInitOptions(options);
+  const sessionId = await envAwareResolveSessionId(options.sessionId);
 
   const config: AdrianConfig = {
-    apiKey,
-    logFile,
+    apiKey: resolved.apiKey,
+    logFile: resolved.logFile,
     logLevel: options.logLevel ?? null,
     sessionId,
-    wsUrl,
-    blockTimeout,
+    wsUrl: resolved.wsUrl,
+    blockTimeout: resolved.blockTimeout,
     onEvent: options.onEvent ?? null,
     onVerdict: options.onVerdict ?? null,
     onBlock: options.onBlock ?? null,
@@ -38,18 +34,18 @@ export async function init(options: InitOptions = {}): Promise<void> {
     onDisconnect: options.onDisconnect ?? null,
     onReconnect: options.onReconnect ?? null,
     onMcpServer: chainMcpServerCallback(options.onMcpServer ?? null),
-    replayBufferFrames: Number.isFinite(replayBufferFrames) ? replayBufferFrames : 1000,
+    replayBufferFrames: resolved.replayBufferFrames,
   };
   setConfig(config);
 
-  const handlerList: EventHandler[] = options.handlers ? [...options.handlers] : [new JSONLHandler(logFile)];
+  const handlerList: EventHandler[] = options.handlers ? [...options.handlers] : [new JSONLHandler(resolved.logFile)];
   let wsClient: WebSocketClient | null = null;
-  if (!options.handlers && wsUrl) {
-    if (!apiKey) console.warn("ADRIAN wsUrl is set but no apiKey was provided; the server will reject the connection.");
+  if (!options.handlers && resolved.wsUrl) {
+    if (!resolved.apiKey) console.warn("ADRIAN wsUrl is set but no apiKey was provided; the server will reject the connection.");
     wsClient = new WebSocketClient({
-      url: wsUrl,
+      url: resolved.wsUrl,
       sessionId,
-      apiKey: apiKey ?? "",
+      apiKey: resolved.apiKey ?? "",
       onDisconnect: config.onDisconnect,
       onReconnect: config.onReconnect,
       onLoginAck: sendMcpInventory,
@@ -69,6 +65,15 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
   await patchMcpAdapters();
 }
+
+export const adrian = {
+  init,
+  shutdown,
+  getHandler,
+  getWebSocketClient,
+  version,
+  __version__: version,
+};
 
 export async function shutdown(): Promise<void> {
   await hooks?.close();

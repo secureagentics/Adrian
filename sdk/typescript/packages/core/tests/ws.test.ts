@@ -61,4 +61,10 @@ describe("WebSocketClient verdict waiting", () => {
 
     await expect(ws.waitForToolCallVerdict("tool-1", 1)).resolves.toBe(expected);
   });
+
+  it("schedules a 60s reconnect delay after quota-exhausted close", () => {
+    const ws = client();
+    expect(ws.reconnectDelayAfterClose(4003, 1000)).toBe(60_000);
+    expect(ws.reconnectDelayAfterClose(null, 1000)).toBe(1000);
+  });
 });

@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setConfig, Mode, type Verdict, type WebSocketClient } from "../src/index.js";
-import {
-  AdrianPolicyBlockedError,
-  assertToolCallsAllowed,
-  gateToolCallIds,
-} from "../src/policy.js";
+import { assertToolCallsAllowed, gateToolCallIds } from "../src/policy.js";
 
 function config(): Parameters<typeof setConfig>[0] {
   return {
@@ -91,7 +87,7 @@ describe("gateToolCallIds", () => {
     expect(await gateToolCallIds(["call-1", "call-2"], ws)).toEqual({ action: "allow" });
   });
 
-  it("assertToolCallsAllowed throws AdrianPolicyBlockedError", async () => {
+  it("allows when verdicts time out (fail-open)", async () => {
     setConfig(config());
     const ws = {
       waitForPolicyReady: async () => true,
@@ -99,6 +95,17 @@ describe("gateToolCallIds", () => {
       blockTimeout: (seconds: number) => seconds,
       waitForToolCallVerdict: async () => null,
     } as unknown as WebSocketClient;
-    await expect(assertToolCallsAllowed(["call-1"], ws)).rejects.toBeInstanceOf(AdrianPolicyBlockedError);
+    expect(await gateToolCallIds(["call-1"], ws)).toEqual({ action: "allow" });
+  });
+
+  it("assertToolCallsAllowed allows on verdict timeout (fail-open)", async () => {
+    setConfig(config());
+    const ws = {
+      waitForPolicyReady: async () => true,
+      policyActive: () => true,
+      blockTimeout: (seconds: number) => seconds,
+      waitForToolCallVerdict: async () => null,
+    } as unknown as WebSocketClient;
+    await expect(assertToolCallsAllowed(["call-1"], ws)).resolves.toBeUndefined();
   });
 });

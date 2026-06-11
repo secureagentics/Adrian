@@ -40,7 +40,6 @@ export async function gateToolCallIds(
 
   const verdictTimeout = ws.blockTimeout(timeoutSeconds);
   const verdicts = await Promise.all(toolCallIds.map((id) => ws.waitForToolCallVerdict(id, verdictTimeout)));
-  if (verdicts.some((verdict) => !verdict)) return { action: "block", reason: "verdict_timeout" };
   if (verdicts.some((verdict) => verdict !== null && shouldHalt(verdict))) return { action: "block", reason: "policy_halt" };
   return { action: "allow" };
 }

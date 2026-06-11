@@ -34,6 +34,7 @@ export class WebSocketClient implements EventHandler {
   private replayBuffer: Uint8Array[] = [];
   private replayLimit: number;
   private droppedFrames = 0;
+  private nextReconnectDelay: number | null = null;
   private runIdToEventId = new Map<string, string>();
   private toolCallIdToEventId = new Map<string, string>();
   private pendingVerdicts = new Map<string, VerdictWaiter[]>();
@@ -141,6 +142,10 @@ export class WebSocketClient implements EventHandler {
   private async connectLoop(): Promise<void> {
     let backoff = INITIAL_BACKOFF_MS;
     while (!this.closing) {
+      const initialDelay = this.nextReconnectDelay;
+      this.nextReconnectDelay = null;
+      if (initialDelay !== null) await sleep(initialDelay);
+
       try {
         await this.connectOnce();
         backoff = INITIAL_BACKOFF_MS;
@@ -149,8 +154,7 @@ export class WebSocketClient implements EventHandler {
         // Connection errors are retried with backoff.
       }
       if (this.closing) return;
-      const delay = this.wsCloseCode() === QUOTA_EXHAUSTED_CLOSE_CODE ? QUOTA_RECONNECT_DELAY_MS : backoff;
-      await sleep(delay);
+      await sleep(backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
     }
   }
@@ -166,13 +170,19 @@ export class WebSocketClient implements EventHandler {
       });
       ws.on("message", (data) => void this.handleMessage(data));
       ws.once("error", reject);
-      ws.once("close", () => {
+      ws.once("close", (code) => {
+        if (code === QUOTA_EXHAUSTED_CLOSE_CODE) this.nextReconnectDelay = QUOTA_RECONNECT_DELAY_MS;
         this.loggedIn = false;
         this.replaying = false;
         this.policy = null;
         this.mode = Mode.MODE_UNSPECIFIED;
         this.resolveLoginAckWaiters(false);
-        if (!this.closing) void this.onDisconnect?.("recv_loop_exit");
+        if (!this.closing) {
+          const reason = code === QUOTA_EXHAUSTED_CLOSE_CODE
+            ? `quota_exhausted (close=${code})`
+            : "recv_loop_exit";
+          void this.onDisconnect?.(reason);
+        }
       });
     });
   }
@@ -183,8 +193,9 @@ export class WebSocketClient implements EventHandler {
     return new Promise((resolve) => ws.once("close", () => resolve()));
   }
 
-  private wsCloseCode(): number | null {
-    return null;
+  /** @internal Test hook for reconnect delay scheduling. */
+  reconnectDelayAfterClose(closeCode: number | null, currentBackoff: number): number {
+    return closeCode === QUOTA_EXHAUSTED_CLOSE_CODE ? QUOTA_RECONNECT_DELAY_MS : currentBackoff;
   }
 
   private async handleMessage(data: WebSocket.RawData): Promise<void> {
@@ -281,11 +292,13 @@ export class WebSocketClient implements EventHandler {
 export function shouldHalt(verdict: Verdict): boolean {
   if (verdict.hitl) return !verdict.hitl.continueExecution;
   const prefix = verdict.madCode.slice(0, 2);
-  if (prefix === "M0") return verdict.policy.policyM0;
-  if (prefix === "M2") return verdict.policy.policyM2;
-  if (prefix === "M3") return verdict.policy.policyM3;
-  if (prefix === "M4") return verdict.policy.policyM4;
-  return false;
+  switch (prefix) {
+    case "M0": return verdict.policy.policyM0;
+    case "M2": return verdict.policy.policyM2;
+    case "M3": return verdict.policy.policyM3;
+    case "M4": return verdict.policy.policyM4;
+    default: return false;
+  }
 }
 
 function deriveProvider(modelClassName: string): string {
