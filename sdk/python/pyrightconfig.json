@@ -1,7 +1,7 @@
 {
   "include": ["adrian", "tests"],
   "exclude": ["**/__pycache__", "adrian/proto"],
-  "venvPath": "..",
+  "venvPath": "../..",
   "venv": ".venv",
   "pythonVersion": "3.12",
   "pythonPlatform": "Linux",

@@ -20,6 +20,10 @@ set -euo pipefail
 SDK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SDK_ROOT"
 
+# Canonical proto lives at the repo-root proto/ (single source of truth);
+# the generated bindings are committed under adrian/proto/.
+PROTO_DIR="$(cd "$SDK_ROOT/../.." && pwd)/proto"
+
 DEP_DIR="$(mktemp -d)"
 trap 'rm -rf "$DEP_DIR"' EXIT
 
@@ -48,9 +52,9 @@ protoc \
   --plugin=protoc-gen-mypy="$PLUGIN" \
   --python_out=adrian/proto \
   --mypy_out=adrian/proto \
-  -I adrian/proto \
+  -I "$PROTO_DIR" \
   -I "$DEP_DIR" \
-  adrian/proto/event.proto
+  "$PROTO_DIR/event.proto"
 
 # 5. Rewrite the protoc-generated `from buf.validate import ...` to a relative
 # import, so the vendored stubs under adrian/proto/buf/validate/ resolve
