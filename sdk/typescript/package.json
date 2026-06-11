@@ -1,7 +1,6 @@
 {
-  "name": "adrian-typescript",
+  "name": "@secureagentics/adrian-workspace",
   "private": true,
-  "description": "Adrian TypeScript SDK monorepo (npm workspaces).",
   "workspaces": [
     "packages/*"
   ],
@@ -12,6 +11,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"

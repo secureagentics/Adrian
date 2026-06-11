@@ -1,0 +1,52 @@
+{
+  "name": "@secureagentics/adrian-openai",
+  "version": "1.0.0",
+  "description": "OpenAI SDK instrumentation for Adrian security monitoring.",
+  "license": "Apache-2.0",
+  "author": "Secure Agentics <support@secureagentics.ai>",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --clean && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "openai",
+    "ai",
+    "agents",
+    "security",
+    "monitoring"
+  ],
+  "dependencies": {
+    "@secureagentics/adrian": "^1.0.0"
+  },
+  "peerDependencies": {
+    "openai": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@secureagentics/adrian": "file:../core",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}
