@@ -20,7 +20,7 @@
 
 ---
 
-Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security monitoring and control engine for AI agents. It analyses both agent activity logs (tool calls, actions, outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit behaviour, and optionally intervene in-flight. Python SDK with a two-line install to LangChain agents.
+Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security monitoring and control engine for AI agents. It analyses both agent activity logs (tool calls, actions, outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit behaviour, and optionally intervene in-flight. SDKs are available for Python (LangChain) and TypeScript (see [sdk/typescript/README.md](sdk/typescript/README.md)).
 
 <p align="center">
   <a href="https://docs.adrian.secureagentics.ai">Documentation</a>

@@ -21,13 +21,24 @@ Thanks for considering a contribution. Adrian is open-source under the [Apache 2
 
 ## Local dev setup
 
-The Python SDK lives at `sdk/python/` (the TypeScript SDK lives at `sdk/typescript/`). From the repo root:
+The Python SDK lives at `sdk/python/`. From the repo root:
 
 ```sh
 make sdk-install            # creates .venv and installs sdk + dev deps via uv
 source .venv/bin/activate
 pre-commit install          # wires the git hook
 ```
+
+The TypeScript SDK lives at `sdk/typescript/` as an npm workspace with the core package (`@secureagentics/adrian`). From that directory:
+
+```sh
+cd sdk/typescript
+npm install
+npm run build
+npm test
+```
+
+See [`sdk/typescript/README.md`](sdk/typescript/README.md) for usage examples.
 
 After `pre-commit install`, every `git commit` runs the configured hooks on
 staged files: `ruff format`, `ruff check --fix`, `basedpyright` on
