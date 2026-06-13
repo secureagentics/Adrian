@@ -50,6 +50,7 @@ type TimelineRow struct {
 	VerdictID      string
 	MADCode        string
 	Classification string
+	VerdictStatus  string
 }
 
 // EventFilters is the query-string surface for ListEvents.
@@ -183,7 +184,8 @@ func (s *Store) SessionTimeline(ctx context.Context, sessionID string) ([]*Timel
 		     e.created_at,
 		     COALESCE(v.id, ''),
 		     COALESCE(v.mad_code, ''),
-		     COALESCE(v.classification, '')
+		     COALESCE(v.classification, ''),
+		     COALESCE(v.verdict_status, '')
 		 FROM events e
 		 LEFT JOIN agent_profiles ap ON ap.id = e.agent_profile_id
 		 LEFT JOIN verdicts v ON v.event_id = e.id
@@ -205,7 +207,7 @@ func (s *Store) SessionTimeline(ctx context.Context, sessionID string) ([]*Timel
 		if err := rows.Scan(
 			&r.ID, &r.EventType, &r.RunID, &r.AgentID, &r.AgentName,
 			&r.PayloadJSON, &createdAt,
-			&r.VerdictID, &r.MADCode, &r.Classification,
+			&r.VerdictID, &r.MADCode, &r.Classification, &r.VerdictStatus,
 		); err != nil {
 			return nil, err
 		}

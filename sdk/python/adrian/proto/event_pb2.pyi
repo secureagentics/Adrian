@@ -12,10 +12,10 @@ import builtins as _builtins
 import sys
 import typing as _typing
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias as _TypeAlias
+if sys.version_info >= (3, 11):
+    from typing import TypeAlias as _TypeAlias, Never as _Never
 else:
-    from typing_extensions import TypeAlias as _TypeAlias
+    from typing_extensions import TypeAlias as _TypeAlias, Never as _Never
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -74,6 +74,28 @@ MODE_BLOCK: Mode.ValueType  # 3
 """Server forwards every verdict; the SDK enforces per the policy snapshot."""
 Global___Mode: _TypeAlias = Mode  # noqa: Y015
 
+class _VerdictStatus:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _VerdictStatusEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_VerdictStatus.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    VERDICT_STATUS_UNSPECIFIED: _VerdictStatus.ValueType  # 0
+    VERDICT_STATUS_OK: _VerdictStatus.ValueType  # 1
+    VERDICT_STATUS_ERROR: _VerdictStatus.ValueType  # 2
+
+class VerdictStatus(_VerdictStatus, metaclass=_VerdictStatusEnumTypeWrapper):
+    """VerdictStatus says whether a Verdict came from a completed classifier
+    decision or represents a classifier failure. ERROR verdicts carry no
+    classifier-produced MAD code; policy decides whether they fail open
+    or fail closed.
+    """
+
+VERDICT_STATUS_UNSPECIFIED: VerdictStatus.ValueType  # 0
+VERDICT_STATUS_OK: VerdictStatus.ValueType  # 1
+VERDICT_STATUS_ERROR: VerdictStatus.ValueType  # 2
+Global___VerdictStatus: _TypeAlias = VerdictStatus  # noqa: Y015
+
 @_typing.final
 class ChatMessage(_message.Message):
     """ChatMessage represents a conversation message with a string role."""
@@ -92,8 +114,11 @@ class ChatMessage(_message.Message):
         role: _builtins.str = ...,
         content: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["content", b"content", "role", b"role"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ChatMessage: _TypeAlias = ChatMessage  # noqa: Y015
 
@@ -119,8 +144,11 @@ class ToolCall(_message.Message):
         args: _builtins.str = ...,
         id: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["args", b"args", "id", b"id", "name", b"name"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ToolCall: _TypeAlias = ToolCall  # noqa: Y015
 
@@ -146,8 +174,11 @@ class TokenUsage(_message.Message):
         completion_tokens: _builtins.int = ...,
         total_tokens: _builtins.int = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["completion_tokens", b"completion_tokens", "prompt_tokens", b"prompt_tokens", "total_tokens", b"total_tokens"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___TokenUsage: _TypeAlias = TokenUsage  # noqa: Y015
 
@@ -178,8 +209,11 @@ class AgentContext(_message.Message):
         system_prompt: _builtins.str = ...,
         user_instruction: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_id", b"agent_id", "system_prompt", b"system_prompt", "user_instruction", b"user_instruction"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___AgentContext: _TypeAlias = AgentContext  # noqa: Y015
 
@@ -225,6 +259,7 @@ class LlmPairData(_message.Message):
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["messages", b"messages", "model", b"model", "output", b"output", "tool_calls", b"tool_calls", "usage", b"usage"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___LlmPairData: _TypeAlias = LlmPairData  # noqa: Y015
 
@@ -258,8 +293,11 @@ class ToolPairData(_message.Message):
         input: _builtins.str = ...,
         output: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["input", b"input", "output", b"output", "tool_call_id", b"tool_call_id", "tool_name", b"tool_name"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ToolPairData: _TypeAlias = ToolPairData  # noqa: Y015
 
@@ -357,8 +395,11 @@ class PairedEventBatch(_message.Message):
         *,
         events: _abc.Iterable[Global___PairedEvent] | None = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["events", b"events"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PairedEventBatch: _TypeAlias = PairedEventBatch  # noqa: Y015
 
@@ -391,8 +432,11 @@ class McpServer(_message.Message):
         transport: _builtins.str = ...,
         endpoint: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["endpoint", b"endpoint", "name", b"name", "transport", b"transport"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___McpServer: _TypeAlias = McpServer  # noqa: Y015
 
@@ -413,8 +457,11 @@ class McpInventory(_message.Message):
         *,
         servers: _abc.Iterable[Global___McpServer] | None = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["servers", b"servers"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___McpInventory: _TypeAlias = McpInventory  # noqa: Y015
 
@@ -436,8 +483,11 @@ class LLMStack(_message.Message):
         provider: _builtins.str = ...,
         model: _builtins.str = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["model", b"model", "provider", b"provider"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___LLMStack: _TypeAlias = LLMStack  # noqa: Y015
 
@@ -469,6 +519,7 @@ class SessionLogin(_message.Message):
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["llm_stack", b"llm_stack", "schema_version", b"schema_version", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___SessionLogin: _TypeAlias = SessionLogin  # noqa: Y015
 
@@ -519,6 +570,9 @@ class PolicySnapshot(_message.Message):
 
     Per-MAD-code booleans say whether the active mode's behaviour fires on
     that code. False means "treat this code as silent regardless of mode".
+    fail_closed_on_classifier_error controls ERROR verdicts and BLOCK-mode
+    SDK verdict timeouts. The default false value preserves fail-open
+    availability when talking to older backends.
     """
 
     DESCRIPTOR: _descriptor.Descriptor
@@ -528,11 +582,13 @@ class PolicySnapshot(_message.Message):
     POLICY_M2_FIELD_NUMBER: _builtins.int
     POLICY_M3_FIELD_NUMBER: _builtins.int
     POLICY_M4_FIELD_NUMBER: _builtins.int
+    FAIL_CLOSED_ON_CLASSIFIER_ERROR_FIELD_NUMBER: _builtins.int
     mode: Global___Mode.ValueType
     policy_m0: _builtins.bool
     policy_m2: _builtins.bool
     policy_m3: _builtins.bool
     policy_m4: _builtins.bool
+    fail_closed_on_classifier_error: _builtins.bool
     def __init__(
         self,
         *,
@@ -541,9 +597,13 @@ class PolicySnapshot(_message.Message):
         policy_m2: _builtins.bool = ...,
         policy_m3: _builtins.bool = ...,
         policy_m4: _builtins.bool = ...,
+        fail_closed_on_classifier_error: _builtins.bool = ...,
     ) -> None: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["mode", b"mode", "policy_m0", b"policy_m0", "policy_m2", b"policy_m2", "policy_m3", b"policy_m3", "policy_m4", b"policy_m4"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["fail_closed_on_classifier_error", b"fail_closed_on_classifier_error", "mode", b"mode", "policy_m0", b"policy_m0", "policy_m2", b"policy_m2", "policy_m3", b"policy_m3", "policy_m4", b"policy_m4"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PolicySnapshot: _TypeAlias = PolicySnapshot  # noqa: Y015
 
@@ -564,8 +624,11 @@ class HitlResponse(_message.Message):
         *,
         continue_execution: _builtins.bool = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["continue_execution", b"continue_execution"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___HitlResponse: _TypeAlias = HitlResponse  # noqa: Y015
 
@@ -594,6 +657,7 @@ class LoginAck(_message.Message):
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
     _ClearFieldArgType: _TypeAlias = _typing.Literal["policy", b"policy"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___LoginAck: _TypeAlias = LoginAck  # noqa: Y015
 
@@ -645,12 +709,22 @@ class Verdict(_message.Message):
     MAD_CODE_FIELD_NUMBER: _builtins.int
     POLICY_FIELD_NUMBER: _builtins.int
     HITL_FIELD_NUMBER: _builtins.int
+    STATUS_FIELD_NUMBER: _builtins.int
     event_id: _builtins.str
     """The event_id of the PairedEvent being classified."""
     session_id: _builtins.str
     """Session identifier for routing."""
     mad_code: _builtins.str
-    """MAD code the classifier returned (e.g. "M0", "M2_C", "M4_a").  Empty string for benign."""
+    """MAD code the classifier returned (e.g. "M0", "M2_C", "M4_a").
+    Empty string means no MAD code was produced, such as for a
+    VerdictStatus.ERROR classifier failure. Benign classifier success
+    is represented by status OK with mad_code "M0".
+    """
+    status: Global___VerdictStatus.ValueType
+    """Status of the classifier result. OK means mad_code carries a normal
+    classifier decision. ERROR means classification did not complete and
+    mad_code is empty; fail-open/fail-closed behaviour comes from policy.
+    """
     @_builtins.property
     def policy(self) -> Global___PolicySnapshot:
         """Org's effective execution-mode policy at the time of this verdict.
@@ -673,10 +747,12 @@ class Verdict(_message.Message):
         mad_code: _builtins.str = ...,
         policy: Global___PolicySnapshot | None = ...,
         hitl: Global___HitlResponse | None = ...,
+        status: Global___VerdictStatus.ValueType = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["hitl", b"hitl", "policy", b"policy"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["event_id", b"event_id", "hitl", b"hitl", "mad_code", b"mad_code", "policy", b"policy", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["event_id", b"event_id", "hitl", b"hitl", "mad_code", b"mad_code", "policy", b"policy", "session_id", b"session_id", "status", b"status"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___Verdict: _TypeAlias = Verdict  # noqa: Y015

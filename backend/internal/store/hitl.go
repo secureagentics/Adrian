@@ -15,15 +15,16 @@ import (
 // HitlReview is a row from hitl_queue, plus joined fields the dashboard
 // list view needs.
 type HitlReview struct {
-	ID         string
-	EventID    string
-	VerdictID  string
-	SessionID  string
-	MADCode    string
-	Status     string
-	ReviewedBy string
-	ReviewedAt time.Time
-	CreatedAt  time.Time
+	ID            string
+	EventID       string
+	VerdictID     string
+	SessionID     string
+	MADCode       string
+	VerdictStatus string
+	Status        string
+	ReviewedBy    string
+	ReviewedAt    time.Time
+	CreatedAt     time.Time
 }
 
 // HitlReviewDetail extends HitlReview with the event payload + verdict
@@ -59,12 +60,13 @@ func (s *Store) ListHitlQueue(ctx context.Context, status string, perPage, offse
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, event_id, COALESCE(verdict_id, ''), COALESCE(session_id, ''),
-		        mad_code, status, COALESCE(reviewed_by, ''),
-		        COALESCE(reviewed_at, ''), created_at
-		 FROM hitl_queue
-		 WHERE status = ?
-		 ORDER BY created_at DESC
+		`SELECT q.id, q.event_id, COALESCE(q.verdict_id, ''), COALESCE(q.session_id, ''),
+		        q.mad_code, COALESCE(v.verdict_status, 'ok'), q.status, COALESCE(q.reviewed_by, ''),
+		        COALESCE(q.reviewed_at, ''), q.created_at
+		 FROM hitl_queue q
+		 LEFT JOIN verdicts v ON v.id = q.verdict_id
+		 WHERE q.status = ?
+		 ORDER BY q.created_at DESC
 		 LIMIT ? OFFSET ?`,
 		status, perPage, offset)
 	if err != nil {
@@ -76,7 +78,7 @@ func (s *Store) ListHitlQueue(ctx context.Context, status string, perPage, offse
 		r := &HitlReview{}
 		var reviewedAt, createdAt string
 		if err := rows.Scan(&r.ID, &r.EventID, &r.VerdictID, &r.SessionID,
-			&r.MADCode, &r.Status, &r.ReviewedBy, &reviewedAt, &createdAt); err != nil {
+			&r.MADCode, &r.VerdictStatus, &r.Status, &r.ReviewedBy, &reviewedAt, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if reviewedAt != "" {
@@ -100,7 +102,7 @@ func (s *Store) GetHitlReview(ctx context.Context, id string) (*HitlReviewDetail
 		     q.mad_code, q.status, COALESCE(q.reviewed_by, ''),
 		     COALESCE(q.reviewed_at, ''), q.created_at,
 		     COALESCE(e.payload, ''),
-		     v.classification, v.reasoning
+		     v.classification, COALESCE(v.verdict_status, 'ok'), v.reasoning
 		 FROM hitl_queue q
 		 LEFT JOIN events e   ON e.id = q.event_id
 		 LEFT JOIN verdicts v ON v.id = q.verdict_id
@@ -110,7 +112,7 @@ func (s *Store) GetHitlReview(ctx context.Context, id string) (*HitlReviewDetail
 		&r.MADCode, &r.Status, &r.ReviewedBy,
 		&reviewedAt, &createdAt,
 		&r.EventPayloadJSON,
-		&classification, &reasoning,
+		&classification, &r.VerdictStatus, &reasoning,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

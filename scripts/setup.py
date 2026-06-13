@@ -72,6 +72,7 @@ GEMMA_VARIANTS = {
     },
 }
 DEFAULT_VARIANT = "E4B"
+NO_TRANSACTION_MARKER = "-- adrian: no-transaction"
 
 
 # ----------------------------------------------------------------
@@ -108,19 +109,63 @@ def open_db(db_path: Path) -> sqlite3.Connection:
 
 
 def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str]:
-    """Apply every `*.sql` file in lexical order. Returns the list of
-    files applied. The migrations themselves use `IF NOT EXISTS` and
-    `INSERT OR IGNORE`, so re-applying is a no-op."""
+    """Apply previously-unseen `*.sql` files in lexical order.
+
+    Applied filenames are recorded in `schema_migrations`, matching the
+    Go backend runner. This keeps setup/bootstrap safe for future
+    migrations that cannot be written as idempotent SQL.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name       TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """,
+    )
+    conn.commit()
+
     applied: list[str] = []
     sql_files = sorted(migrations_dir.glob("*.sql"))
     if not sql_files:
         raise SystemExit(f"no migrations found in {migrations_dir}")
     for path in sql_files:
+        if migration_applied(conn, path.name):
+            continue
         sql = path.read_text(encoding="utf-8")
-        conn.executescript(sql)
+        if NO_TRANSACTION_MARKER in sql:
+            try:
+                conn.executescript(sql)
+                conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (path.name,))
+                conn.commit()
+            except sqlite3.Error:
+                conn.rollback()
+                conn.execute("PRAGMA foreign_keys=ON")
+                raise
+        else:
+            quoted_name = path.name.replace("'", "''")
+            try:
+                conn.executescript(
+                    "BEGIN;\n"
+                    f"{sql}\n"
+                    "INSERT INTO schema_migrations (name) "
+                    f"VALUES ('{quoted_name}');\n"
+                    "COMMIT;\n",
+                )
+            except sqlite3.Error:
+                conn.rollback()
+                raise
         applied.append(path.name)
-    conn.commit()
     return applied
+
+
+def migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    """Return True when `name` has already been recorded in the ledger."""
+    row = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE name = ?",
+        (name,),
+    ).fetchone()
+    return row is not None
 
 
 def read_env(env_path: Path) -> dict[str, str]:
@@ -540,7 +585,7 @@ def cmd_apply_migrations(args: argparse.Namespace) -> int:
 
     sys.stdout.write(
         f"\n"
-        f"v {len(applied)} migration file(s) re-applied (idempotent):\n"
+        f"v {len(applied)} new migration file(s) applied:\n"
         + "".join(f"    {name}\n" for name in applied)
         + "\n"
     )
@@ -587,7 +632,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_model.add_argument("--ctx-size", type=int, default=None)
     p_model.set_defaults(func=cmd_set_model)
 
-    p_migrate = sub.add_parser("apply-migrations", help="re-apply schema migrations")
+    p_migrate = sub.add_parser("apply-migrations", help="apply pending schema migrations")
     p_migrate.set_defaults(func=cmd_apply_migrations)
 
     return parser

@@ -271,7 +271,7 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 		for i := 0; i < 3; i++ {
 			existing, err := st.GetVerdictByEventID(ctx, ev.EventId)
 			if err == nil {
-				return dispatchVerdict(ctx, sess, st, hub, ev, snap, existing.ID, existing.MADCode)
+				return dispatchVerdict(ctx, sess, st, hub, ev, snap, existing.ID, existing.MADCode, existing.VerdictStatus)
 			}
 			if !errors.Is(err, store.ErrNotFound) {
 				return err
@@ -303,14 +303,27 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 	}
 	verdict, err := classifier.Classify(ctx, ev, agentProfileID)
 	if err != nil {
-		// The HTTPClient implementation never returns a non-nil error
-		// (all classifier failures are mapped to a synthetic M0 /
-		// benign verdict by engine.HTTPClient.failOpen). This branch
-		// is defensive against future classifier implementations or
-		// context-cancellation edge cases: log and skip the event.
-		slog.ErrorContext(ctx, "ws.classify_unexpected_error",
+		slog.WarnContext(ctx, "ws.classifier_failure",
 			"error", err, "event_id", ev.EventId)
-		return nil
+		reasoning := "classifier failure: " + err.Error()
+		vrow := &store.Verdict{
+			ID:             uuid.NewString(),
+			EventID:        ev.EventId,
+			SessionID:      sess.sessionID,
+			AgentProfileID: sess.agentProfileID(),
+			MADCode:        "",
+			Classification: "error",
+			VerdictStatus:  "error",
+			Reasoning:      &reasoning,
+			TokensUsed:     0,
+		}
+		if err := st.InsertVerdict(ctx, vrow); err != nil {
+			return err
+		}
+		if hook != nil {
+			hook(ev.EventId, sess.sessionID, ev.GetAgent().GetAgentId(), "", "error")
+		}
+		return dispatchVerdict(ctx, sess, st, hub, ev, snap, vrow.ID, "", "error")
 	}
 
 	vrow := &store.Verdict{
@@ -320,6 +333,7 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 		AgentProfileID: sess.agentProfileID(),
 		MADCode:        verdict.MADCode,
 		Classification: verdict.Classification,
+		VerdictStatus:  "ok",
 		Reasoning:      strPtrOrNil(verdict.Reasoning),
 		LatencyMS:      int64PtrIfNonZero(verdict.LatencyMS),
 		TokensUsed:     0,
@@ -336,10 +350,10 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 			verdict.MADCode, verdict.Classification)
 	}
 
-	return dispatchVerdict(ctx, sess, st, hub, ev, snap, vrow.ID, verdict.MADCode)
+	return dispatchVerdict(ctx, sess, st, hub, ev, snap, vrow.ID, verdict.MADCode, "ok")
 }
 
-func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictID, madCode string) error {
+func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictID, madCode, verdictStatus string) error {
 	// Mode-gated dispatch:
 	//   alert: persist verdict, do NOT notify the SDK (dashboard-only).
 	//   hitl + in-scope + actionable: persist + queue for human review,
@@ -383,6 +397,7 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 				EventId:   ev.EventId,
 				SessionId: sess.sessionID,
 				MadCode:   madCode,
+				Status:    verdictStatusProto(verdictStatus),
 				Policy:    snap,
 			},
 		},
@@ -392,6 +407,17 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 			"event_id", ev.EventId, "session_id", sess.sessionID)
 	}
 	return nil
+}
+
+func verdictStatusProto(status string) pb.VerdictStatus {
+	switch status {
+	case "error":
+		return pb.VerdictStatus_VERDICT_STATUS_ERROR
+	case "ok":
+		return pb.VerdictStatus_VERDICT_STATUS_OK
+	default:
+		return pb.VerdictStatus_VERDICT_STATUS_UNSPECIFIED
+	}
 }
 
 func handleMcpInventory(ctx context.Context, sess *session, st *store.Store, inv *pb.McpInventory) error {

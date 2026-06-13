@@ -18,6 +18,7 @@ models/*
 !models/.gitkeep
 
 # Go
+.tools/
 *.exe
 *.exe~
 *.dll
