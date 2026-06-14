@@ -16,15 +16,16 @@ import (
 )
 
 type reviewSummary struct {
-	ID         string `json:"id"`
-	EventID    string `json:"event_id"`
-	VerdictID  string `json:"verdict_id"`
-	SessionID  string `json:"session_id"`
-	MADCode    string `json:"mad_code"`
-	Status     string `json:"status"`
-	CreatedAt  string `json:"created_at"`
-	ReviewedBy string `json:"reviewed_by,omitempty"`
-	ReviewedAt string `json:"reviewed_at,omitempty"`
+	ID            string `json:"id"`
+	EventID       string `json:"event_id"`
+	VerdictID     string `json:"verdict_id"`
+	SessionID     string `json:"session_id"`
+	MADCode       string `json:"mad_code"`
+	VerdictStatus string `json:"verdict_status"`
+	Status        string `json:"status"`
+	CreatedAt     string `json:"created_at"`
+	ReviewedBy    string `json:"reviewed_by,omitempty"`
+	ReviewedAt    string `json:"reviewed_at,omitempty"`
 }
 
 type reviewListResponse struct {
@@ -127,6 +128,7 @@ func (s *Server) resolveReview(w http.ResponseWriter, r *http.Request, status st
 			EventId:   row.EventID,
 			SessionId: row.SessionID,
 			MadCode:   row.MADCode,
+			Status:    pb.VerdictStatus_VERDICT_STATUS_OK,
 			Policy:    s.policySnapshotProto(pol),
 			Hitl:      &pb.HitlResponse{ContinueExecution: continueExec},
 		}},
@@ -148,14 +150,15 @@ func (s *Server) resolveReview(w http.ResponseWriter, r *http.Request, status st
 
 func reviewToSummary(r *store.HitlReview) reviewSummary {
 	out := reviewSummary{
-		ID:         r.ID,
-		EventID:    r.EventID,
-		VerdictID:  r.VerdictID,
-		SessionID:  r.SessionID,
-		MADCode:    r.MADCode,
-		Status:     r.Status,
-		CreatedAt:  r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		ReviewedBy: r.ReviewedBy,
+		ID:            r.ID,
+		EventID:       r.EventID,
+		VerdictID:     r.VerdictID,
+		SessionID:     r.SessionID,
+		MADCode:       r.MADCode,
+		VerdictStatus: r.VerdictStatus,
+		Status:        r.Status,
+		CreatedAt:     r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		ReviewedBy:    r.ReviewedBy,
 	}
 	if !r.ReviewedAt.IsZero() {
 		out.ReviewedAt = r.ReviewedAt.UTC().Format("2006-01-02T15:04:05.000Z")

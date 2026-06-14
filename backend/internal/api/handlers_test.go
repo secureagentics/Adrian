@@ -289,10 +289,15 @@ func TestPolicyGetAndUpdate(t *testing.T) {
 	if body["data"].(map[string]any)["mode"] != "alert" {
 		t.Errorf("default mode = %v, want alert", body["data"].(map[string]any)["mode"])
 	}
+	if body["data"].(map[string]any)["fail_closed_on_classifier_error"] != false {
+		t.Errorf("default fail_closed_on_classifier_error = %v, want false",
+			body["data"].(map[string]any)["fail_closed_on_classifier_error"])
+	}
 
 	// PUT
 	resp = doJSON(t, srv, cookie, http.MethodPut, "/api/settings/policy", map[string]any{
-		"mode": "hitl",
+		"mode":                            "hitl",
+		"fail_closed_on_classifier_error": true,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status = %d, want 200", resp.StatusCode)
@@ -300,6 +305,10 @@ func TestPolicyGetAndUpdate(t *testing.T) {
 	body = decodeBody(t, resp)
 	if body["data"].(map[string]any)["mode"] != "hitl" {
 		t.Errorf("post-PUT mode = %v, want hitl", body["data"].(map[string]any)["mode"])
+	}
+	if body["data"].(map[string]any)["fail_closed_on_classifier_error"] != true {
+		t.Errorf("post-PUT fail_closed_on_classifier_error = %v, want true",
+			body["data"].(map[string]any)["fail_closed_on_classifier_error"])
 	}
 }
 
@@ -475,6 +484,44 @@ func TestStatsActivityEmpty(t *testing.T) {
 	buckets := data["buckets"].([]any)
 	if len(buckets) != 0 {
 		t.Errorf("buckets = %d, want 0 on empty events table", len(buckets))
+	}
+}
+
+// -----------------------------------------------------------------
+// Verdicts
+// -----------------------------------------------------------------
+
+func TestListVerdictsIncludesStatusAndFiltersError(t *testing.T) {
+	srv, db, _, cookie := newTestServerLoggedIn(t)
+
+	eventID := uuid.NewString()
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, 'sess-verdicts', 'agent-v', 'tool', 'r1', '{}')`,
+		eventID,
+	); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status, reasoning)
+		 VALUES (?, ?, 'sess-verdicts', '', 'error', 'error', 'classifier failed')`,
+		uuid.NewString(), eventID,
+	); err != nil {
+		t.Fatalf("seed verdict: %v", err)
+	}
+
+	resp := getReq(t, srv, cookie, "/api/verdicts?classification=error&verdict_status=error")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	data := decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 {
+		t.Fatalf("total = %v, want 1", data["total"])
+	}
+	verdicts := data["verdicts"].([]any)
+	row := verdicts[0].(map[string]any)
+	if row["classification"] != "error" || row["verdict_status"] != "error" {
+		t.Errorf("verdict row = %v, want classification/status error", row)
 	}
 }
 
@@ -915,6 +962,9 @@ func TestSessionTimeline(t *testing.T) {
 	if verdict["mad_code"] != "M3" {
 		t.Errorf("verdict.mad_code = %v, want M3", verdict["mad_code"])
 	}
+	if verdict["verdict_status"] != "ok" {
+		t.Errorf("verdict.verdict_status = %v, want ok", verdict["verdict_status"])
+	}
 }
 
 // -----------------------------------------------------------------
@@ -1291,6 +1341,7 @@ CREATE TABLE policies (
     policy_m2  INTEGER NOT NULL DEFAULT 0,
     policy_m3  INTEGER NOT NULL DEFAULT 1,
     policy_m4  INTEGER NOT NULL DEFAULT 1,
+    fail_closed_on_classifier_error INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 INSERT INTO policies (id) VALUES (1);
@@ -1312,6 +1363,7 @@ CREATE TABLE verdicts (
     agent_profile_id TEXT,
     mad_code         TEXT NOT NULL,
     classification   TEXT NOT NULL,
+    verdict_status   TEXT NOT NULL DEFAULT 'ok',
     reasoning        TEXT,
     latency_ms       INTEGER,
     tokens_used      INTEGER NOT NULL DEFAULT 0,

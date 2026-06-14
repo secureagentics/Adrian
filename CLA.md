@@ -55,5 +55,6 @@ To accept this Agreement, open a pull request that adds an entry to the table be
 | _example placeholder_ | _@example_ | _2026-01-01_ |
 | Dhrit Timinkumar Patel | @d180 | 2026-05-20 |
 | Adarsh Tiwari | @adarsh9977 | 2026-05-22 |
+| Muhammad usman | @Muhammad-usman92 | 2026-06-11 |
 
 Once a CLA-bot (cla-assistant.io or equivalent) is wired up, this manual table will be replaced by the bot's status check on each pull request. Existing signatures in this table remain valid; the bot reads from a separate signers list.

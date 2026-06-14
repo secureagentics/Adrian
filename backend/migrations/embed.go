@@ -4,10 +4,10 @@
 // Package migrations embeds the SQL migration files for the Adrian
 // backend. The same files are also COPYed into the adrian-setup
 // bootstrap image (deploy/Dockerfile.setup), where setup.py applies
-// them on first run. The backend re-applies them at startup so
-// upgrades after `git pull` work without a manual step; every
-// migration is idempotent (CREATE TABLE IF NOT EXISTS, INSERT OR
-// IGNORE).
+// pending migrations on bootstrap / apply-migrations. The backend
+// also checks pending migrations at startup so upgrades after
+// `git pull` work without a manual step. Both runners record applied
+// filenames in schema_migrations.
 package migrations
 
 import "embed"
