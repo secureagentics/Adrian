@@ -151,13 +151,12 @@ export class WebSocketClient implements EventHandler {
         backoff = INITIAL_BACKOFF_MS;
         await this.waitForClose();
       } catch {
-        // Connection errors are retried with backoff.
-      }
-      if (this.closing) return;
-      if (this.nextReconnectDelay === null) {
+        if (this.closing) return;
         await sleep(backoff);
         backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+        continue;
       }
+      if (this.closing) return;
     }
   }
 

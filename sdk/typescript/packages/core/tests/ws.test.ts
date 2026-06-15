@@ -5,7 +5,9 @@ import { Mode, type Verdict } from "../src/proto/schema.js";
 const wsMock = vi.hoisted(() => {
   const { EventEmitter } = require("node:events") as typeof import("node:events");
   const created: InstanceType<typeof EventEmitter>[] = [];
-  let closeCodeOnOpen = 4003;
+  let autoCloseCode: number | null = 4003;
+  let autoCloseRemaining = 1;
+  let failNextConnections = 0;
 
   class MockWebSocket extends EventEmitter {
     static readonly CONNECTING = 0;
@@ -23,12 +25,21 @@ const wsMock = vi.hoisted(() => {
       created.push(this);
       queueMicrotask(() => {
         if (this.readyState === MockWebSocket.CLOSED) return;
+        if (failNextConnections > 0) {
+          failNextConnections -= 1;
+          this.readyState = MockWebSocket.CLOSED;
+          this.emit("error", new Error("connect failed"));
+          return;
+        }
         this.readyState = MockWebSocket.OPEN;
         this.emit("open");
-        queueMicrotask(() => {
-          this.readyState = MockWebSocket.CLOSED;
-          this.emit("close", closeCodeOnOpen);
-        });
+        if (autoCloseRemaining > 0 && autoCloseCode !== null) {
+          autoCloseRemaining -= 1;
+          queueMicrotask(() => {
+            this.readyState = MockWebSocket.CLOSED;
+            this.emit("close", autoCloseCode);
+          });
+        }
       });
     }
 
@@ -45,15 +56,29 @@ const wsMock = vi.hoisted(() => {
 
   return {
     created,
-    get closeCodeOnOpen() {
-      return closeCodeOnOpen;
+    get autoCloseCode() {
+      return autoCloseCode;
     },
-    set closeCodeOnOpen(value: number) {
-      closeCodeOnOpen = value;
+    set autoCloseCode(value: number | null) {
+      autoCloseCode = value;
+    },
+    get autoCloseRemaining() {
+      return autoCloseRemaining;
+    },
+    set autoCloseRemaining(value: number) {
+      autoCloseRemaining = value;
+    },
+    get failNextConnections() {
+      return failNextConnections;
+    },
+    set failNextConnections(value: number) {
+      failNextConnections = value;
     },
     reset(): void {
       created.length = 0;
-      closeCodeOnOpen = 4003;
+      autoCloseCode = 4003;
+      autoCloseRemaining = 1;
+      failNextConnections = 0;
     },
     MockWebSocket,
   };
@@ -173,8 +198,9 @@ describe("WebSocketClient quota-exhausted reconnect", () => {
     await ws.close();
   });
 
-  it("leaves reconnect delay unset after a normal close", async () => {
-    wsMock.closeCodeOnOpen = 1000;
+  it("reconnects immediately after a normal close", async () => {
+    wsMock.autoCloseCode = 1000;
+    wsMock.autoCloseRemaining = 1;
     const disconnects: string[] = [];
     const ws = client((reason) => disconnects.push(reason));
     ws.scheduleConnect();
@@ -183,6 +209,19 @@ describe("WebSocketClient quota-exhausted reconnect", () => {
 
     expect(disconnects).toEqual(["recv_loop_exit"]);
     expect(nextReconnectDelay(ws)).toBeNull();
+    expect(wsMock.created).toHaveLength(2);
+
+    await ws.close();
+  });
+
+  it("backs off only when connect fails", async () => {
+    wsMock.autoCloseCode = null;
+    wsMock.failNextConnections = 1;
+    const ws = client();
+    ws.scheduleConnect();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wsMock.created).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(999);
     expect(wsMock.created).toHaveLength(1);
@@ -194,6 +233,7 @@ describe("WebSocketClient quota-exhausted reconnect", () => {
   });
 
   it("consumes a pending reconnect delay once before the next connect attempt", async () => {
+    wsMock.autoCloseCode = null;
     const ws = client();
     (ws as unknown as { nextReconnectDelay: number | null }).nextReconnectDelay = QUOTA_RECONNECT_DELAY_MS;
     ws.scheduleConnect();
