@@ -1,10 +1,80 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PairedEvent } from "../src/format/types.js";
 import { Mode, type Verdict } from "../src/proto/schema.js";
+
+const wsMock = vi.hoisted(() => {
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const created: InstanceType<typeof EventEmitter>[] = [];
+  let closeCodeOnOpen = 4003;
+
+  class MockWebSocket extends EventEmitter {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+    readyState = MockWebSocket.CONNECTING;
+    binaryType = "arraybuffer";
+
+    constructor(
+      public url: string,
+      public options?: unknown,
+    ) {
+      super();
+      created.push(this);
+      queueMicrotask(() => {
+        if (this.readyState === MockWebSocket.CLOSED) return;
+        this.readyState = MockWebSocket.OPEN;
+        this.emit("open");
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.CLOSED;
+          this.emit("close", closeCodeOnOpen);
+        });
+      });
+    }
+
+    send(_data: unknown, _opts: unknown, cb?: (err?: Error | null) => void): void {
+      cb?.(null);
+    }
+
+    close(code?: number): void {
+      if (this.readyState === MockWebSocket.CLOSED) return;
+      this.readyState = MockWebSocket.CLOSED;
+      this.emit("close", code ?? 1000);
+    }
+  }
+
+  return {
+    created,
+    get closeCodeOnOpen() {
+      return closeCodeOnOpen;
+    },
+    set closeCodeOnOpen(value: number) {
+      closeCodeOnOpen = value;
+    },
+    reset(): void {
+      created.length = 0;
+      closeCodeOnOpen = 4003;
+    },
+    MockWebSocket,
+  };
+});
+
+vi.mock("ws", () => ({
+  default: wsMock.MockWebSocket,
+}));
+
 import { WebSocketClient } from "../src/ws.js";
 
-function client(): WebSocketClient {
-  return new WebSocketClient({ url: "ws://localhost:0", sessionId: "sess", apiKey: "key", replayBufferFrames: 10 });
+const QUOTA_RECONNECT_DELAY_MS = 60_000;
+
+function client(onDisconnect?: (reason: string) => void): WebSocketClient {
+  return new WebSocketClient({
+    url: "ws://localhost:0",
+    sessionId: "sess",
+    apiKey: "key",
+    replayBufferFrames: 10,
+    onDisconnect,
+  });
 }
 
 function verdict(eventId: string): Verdict {
@@ -31,6 +101,15 @@ function llmEvent(eventId: string): PairedEvent {
     data: { kind: "llm", model: "ChatOpenAI", messages: [], output: "", toolCalls: [{ id: "tool-1", name: "search", args: {} }], usage: null },
     metadata: null,
   };
+}
+
+function nextReconnectDelay(ws: WebSocketClient): number | null {
+  return (ws as unknown as { nextReconnectDelay: number | null }).nextReconnectDelay;
+}
+
+async function flushConnectionLifecycle(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(0);
 }
 
 describe("WebSocketClient verdict waiting", () => {
@@ -61,10 +140,73 @@ describe("WebSocketClient verdict waiting", () => {
 
     await expect(ws.waitForToolCallVerdict("tool-1", 1)).resolves.toBe(expected);
   });
+});
 
-  it("schedules a 60s reconnect delay after quota-exhausted close", () => {
+describe("WebSocketClient quota-exhausted reconnect", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsMock.reset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    wsMock.reset();
+  });
+
+  it("arms a 60s reconnect delay when the server closes with 4003", async () => {
+    const disconnects: string[] = [];
+    const ws = client((reason) => disconnects.push(reason));
+    ws.scheduleConnect();
+
+    await flushConnectionLifecycle();
+
+    expect(disconnects).toEqual(["quota_exhausted (close=4003)"]);
+    expect(wsMock.created).toHaveLength(1);
+    expect(nextReconnectDelay(ws)).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(QUOTA_RECONNECT_DELAY_MS - 1);
+    expect(wsMock.created).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(wsMock.created).toHaveLength(2);
+
+    await ws.close();
+  });
+
+  it("leaves reconnect delay unset after a normal close", async () => {
+    wsMock.closeCodeOnOpen = 1000;
+    const disconnects: string[] = [];
+    const ws = client((reason) => disconnects.push(reason));
+    ws.scheduleConnect();
+
+    await flushConnectionLifecycle();
+
+    expect(disconnects).toEqual(["recv_loop_exit"]);
+    expect(nextReconnectDelay(ws)).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(wsMock.created).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(wsMock.created).toHaveLength(2);
+
+    await ws.close();
+  });
+
+  it("consumes a pending reconnect delay once before the next connect attempt", async () => {
     const ws = client();
-    expect(ws.reconnectDelayAfterClose(4003, 1000)).toBe(60_000);
-    expect(ws.reconnectDelayAfterClose(null, 1000)).toBe(1000);
+    (ws as unknown as { nextReconnectDelay: number | null }).nextReconnectDelay = QUOTA_RECONNECT_DELAY_MS;
+    ws.scheduleConnect();
+
+    expect(wsMock.created).toHaveLength(0);
+    expect(nextReconnectDelay(ws)).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(QUOTA_RECONNECT_DELAY_MS - 1);
+    expect(wsMock.created).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(wsMock.created).toHaveLength(1);
+
+    await ws.close();
   });
 });

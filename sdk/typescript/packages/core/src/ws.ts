@@ -154,8 +154,10 @@ export class WebSocketClient implements EventHandler {
         // Connection errors are retried with backoff.
       }
       if (this.closing) return;
-      await sleep(backoff);
-      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+      if (this.nextReconnectDelay === null) {
+        await sleep(backoff);
+        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+      }
     }
   }
 
@@ -191,11 +193,6 @@ export class WebSocketClient implements EventHandler {
     const ws = this.ws;
     if (!ws || ws.readyState === WebSocket.CLOSED) return Promise.resolve();
     return new Promise((resolve) => ws.once("close", () => resolve()));
-  }
-
-  /** @internal Test hook for reconnect delay scheduling. */
-  reconnectDelayAfterClose(closeCode: number | null, currentBackoff: number): number {
-    return closeCode === QUOTA_EXHAUSTED_CLOSE_CODE ? QUOTA_RECONNECT_DELAY_MS : currentBackoff;
   }
 
   private async handleMessage(data: WebSocket.RawData): Promise<void> {
