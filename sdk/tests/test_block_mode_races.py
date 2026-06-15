@@ -5,17 +5,17 @@ emit and exercises the SDK's block-mode correlation directly.  No real
 LLM calls; no running backend.
 
 Scenarios mirror the validated shapes from the multi-agent work:
-    S1 subagents-as-tools  - director → worker (nested)
-    S2 handoffs            - triage → specialist (sequential)
-    S3 router              - parallel fan-out via Send()
-    S4 hierarchical        - 3-level deep (director → team-lead → worker)
-    S5 custom workflow     - deterministic + LLM nodes mixed
-    S6 swarm               - back-and-forth handoffs (Alice ↔ Bob)
-    S7 supervisor          - central dispatcher to N workers
-    S8 deep research       - parallel researchers via asyncio.gather
+    S1 subagents-as-tools , director → worker (nested)
+    S2 handoffs           , triage → specialist (sequential)
+    S3 router             , parallel fan-out via Send()
+    S4 hierarchical       , 3-level deep (director → team-lead → worker)
+    S5 custom workflow    , deterministic + LLM nodes mixed
+    S6 swarm              , back-and-forth handoffs (Alice ↔ Bob)
+    S7 supervisor         , central dispatcher to N workers
+    S8 deep research      , parallel researchers via asyncio.gather
 
 The invariant under test: for EVERY pattern, each ToolNode invocation
-blocks on the verdict of the LLM that emitted its specific tool_call.id -
+blocks on the verdict of the LLM that emitted its specific tool_call.id ,
 never a sibling, never a parent, never a stale global.
 """
 
@@ -117,9 +117,9 @@ def _init_block_mode(tmp_path: Path, block_timeout: float = 1.0) -> Any:
 
 
 def _tool(name: str, captured: list[str]) -> Any:
-    """Build a named stub tool that records its argument."""
+    """Build a named async stub tool that records its argument."""
 
-    def _impl(x: str) -> str:
+    async def _impl(x: str) -> str:
         """Stub tool."""
         captured.append(f"{name}:{x}")
 

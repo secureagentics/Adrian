@@ -799,7 +799,46 @@ def _patch_langgraph() -> None:
     logger.debug("Patched Pregel.invoke / ainvoke / astream")
 
 
-# --- 5. ToolNode (callback injection only — gate is on BaseTool) ---
+# --- 5. ToolNode ---
+
+
+def _extract_tool_calls(
+    state: dict[str, Any] | list[BaseMessage] | Any,
+) -> list[dict[str, Any]]:
+    """Extract tool_calls from ToolNode input (all three dispatch shapes).
+
+    Returns full tool_call dicts (with id, name, args) for backward
+    compat with tests and callers that need the full shape.
+    """
+    # Shape 3: per-tool-call dict from _afunc dispatch
+    if isinstance(state, dict) and "tool_call" in state:
+        tc = state["tool_call"]
+        if isinstance(tc, dict) and tc.get("id"):
+            return [tc]
+        tc_id = getattr(tc, "id", None)
+        if tc_id:
+            return [
+                {
+                    "id": tc_id,
+                    "name": getattr(tc, "name", ""),
+                    "args": getattr(tc, "args", {}),
+                }
+            ]
+        return []
+
+    # Shape 1/2: state dict or message list
+    if isinstance(state, dict):
+        messages = list(state.get("messages") or [])  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+    elif isinstance(state, list):
+        messages = list(state)
+    else:
+        return []
+
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            return msg.tool_calls  # type: ignore[no-any-return]
+
+    return []
 
 
 def _should_halt(verdict: pb.Verdict) -> bool:
@@ -840,26 +879,6 @@ def _patch_tool_node() -> None:
     original_ainvoke = ToolNode.ainvoke
     original_astream = getattr(ToolNode, "astream", None)
 
-    def _extract_tool_call_ids(state: Any) -> list[str]:  # noqa: ANN401
-        """Extract tool_call_ids from ToolNode input (any shape)."""
-        # Shape 3: per-tool-call dict from _afunc dispatch
-        if isinstance(state, dict) and "tool_call" in state:
-            tc = state["tool_call"]
-            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-            return [tc_id] if tc_id else []
-        # Shape 1/2: state dict or message list
-        messages = (
-            list(state.get("messages") or [])
-            if isinstance(state, dict)
-            else list(state)
-            if isinstance(state, list)
-            else []
-        )
-        for msg in reversed(messages):
-            if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-                return [tc.get("id") for tc in msg.tool_calls if tc.get("id")]
-        return []
-
     async def _gate_tool_calls(state: Any) -> bool:  # noqa: ANN401
         """Returns True if tools should be BLOCKED."""
         ws = _ws_client
@@ -874,13 +893,14 @@ def _patch_tool_node() -> None:
         if not ws.policy_active():
             return False
 
-        tc_ids = _extract_tool_call_ids(state)
+        tc_ids: list[str] = [
+            str(tc.get("id")) for tc in _extract_tool_calls(state) if tc.get("id")
+        ]
         if not tc_ids:
             return False
 
         cfg = _get_config()
         timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-        # Gate on the first tool_call_id (all come from the same LLM turn)
         verdict = await ws.wait_for_tool_call_verdict(tc_ids[0], timeout)
         if verdict is None:
             logger.warning("ToolNode: verdict timeout, blocking (fail-closed)")
@@ -895,7 +915,7 @@ def _patch_tool_node() -> None:
         return False
 
     def _build_blocked(state: Any) -> dict[str, list[ToolMessage]]:  # noqa: ANN401
-        tc_ids = _extract_tool_call_ids(state)
+        tc_ids = [tc.get("id") for tc in _extract_tool_calls(state) if tc.get("id")]
         return {
             "messages": [
                 ToolMessage(
@@ -921,8 +941,11 @@ def _patch_tool_node() -> None:
         **kwargs: Any,  # noqa: A002, ANN401
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        if await _gate_tool_calls(input):
-            return _build_blocked(input)
+        # Verdict gate removed — BaseTool.ainvoke/arun is the single
+        # gate layer. Gating here too caused double-gate: ToolNode
+        # consumed the verdict future, BaseTool's gate registered a
+        # fresh future that never resolved → 30s timeout on a benign
+        # verdict. Callback injection is kept so events still flow.
         return await original_ainvoke(self, input, config=config, **kwargs)
 
     async def patched_astream(
@@ -932,9 +955,7 @@ def _patch_tool_node() -> None:
         **kwargs: Any,  # noqa: A002, ANN401
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        if await _gate_tool_calls(input):
-            yield _build_blocked(input)
-            return
+        assert original_astream is not None  # guarded by line below
         async for chunk in original_astream(self, input, config=config, **kwargs):
             yield chunk
 
@@ -970,7 +991,9 @@ def _patch_base_tool() -> None:
     In MODE_ALERT, no gate fires at all (skip).
     """
     from langchain_core.tools import BaseTool
-    from langchain_core.tools.base import _is_tool_call  # pyright: ignore[reportPrivateUsage]
+    from langchain_core.tools.base import (
+        _is_tool_call,  # pyright: ignore[reportPrivateUsage]
+    )
 
     if getattr(BaseTool, "_adrian_base_tool_patched", False):
         return
@@ -1030,11 +1053,19 @@ def _patch_base_tool() -> None:
         return False
 
     def _sync_gate(tool_call_id: str) -> bool:
-        """Sync verdict gate for pure-sync callers (no running event loop).
+        """Sync verdict gate — works for pure-sync and worker-thread callers.
 
-        When called from within an async loop (ToolNode._func dispatched
-        by Pregel), this cannot work — use the ToolNode.ainvoke gate
-        instead. Returns False (skip) when a running loop is detected.
+        Pure-sync (no event loop): runs ``_async_gate`` via
+        ``loop.run_until_complete``.
+
+        Worker-thread (Pregel dispatches sync tools on a thread-pool
+        worker while the event loop runs on the main thread): bridges
+        the async gate to the main loop via ``run_coroutine_threadsafe``
+        and blocks the worker thread until the verdict resolves.
+
+        Event-loop thread (calling tool.invoke directly from async
+        code): cannot block — returns False (skip). The async path
+        (BaseTool.ainvoke) handles this case.
         """
         ws = _ws_client
         if ws is None or not ws._login_ack_received.is_set() or not ws.policy_active():  # pyright: ignore[reportPrivateUsage]
@@ -1042,13 +1073,44 @@ def _patch_base_tool() -> None:
 
         try:
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Can't block the event loop thread. The ToolNode.ainvoke
-                # gate handles this path.
-                return False
-            return loop.run_until_complete(_async_gate(tool_call_id))
         except RuntimeError:
             return False
+
+        if not loop.is_running():
+            # Pure-sync caller — safe to block
+            return loop.run_until_complete(_async_gate(tool_call_id))
+
+        # Check if we're on a worker thread (no running loop on THIS
+        # thread) vs the event-loop thread itself.
+        try:
+            asyncio.get_running_loop()
+            # We ARE on the event-loop thread — can't block it.
+            return False
+        except RuntimeError:
+            pass
+
+        # Worker thread: bridge the async gate to the main loop.
+        main_loop = getattr(ws, "_loop", None)
+        if main_loop is None or not main_loop.is_running():
+            return False
+
+        try:
+            cfg = _get_config()
+            timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
+            future = asyncio.run_coroutine_threadsafe(
+                _async_gate(tool_call_id), main_loop
+            )
+            return future.result(timeout=timeout if timeout else 60.0)
+        except Exception:
+            return False
+
+    def _blocked_response(tc_id: str) -> Any:  # noqa: ANN401
+        """Return a blocked response compatible with ToolNode (ToolMessage)
+        and legacy callers (falls back to bare string)."""
+        try:
+            return ToolMessage(content=_BLOCKED_CONTENT, tool_call_id=tc_id, name="")
+        except Exception:
+            return _BLOCKED_CONTENT
 
     def patched_invoke(
         self: Any,  # noqa: ANN401
@@ -1059,7 +1121,7 @@ def _patch_base_tool() -> None:
         config = _inject_callbacks(config)
         tc_id = _extract_tool_call_id(input)
         if tc_id and _sync_gate(tc_id):
-            return _BLOCKED_CONTENT
+            return _blocked_response(tc_id)
         return original_invoke(self, input, config=config, **kwargs)
 
     async def patched_ainvoke(
@@ -1071,7 +1133,7 @@ def _patch_base_tool() -> None:
         config = _inject_callbacks(config)
         tc_id = _extract_tool_call_id(input)
         if tc_id and await _async_gate(tc_id):
-            return _BLOCKED_CONTENT
+            return _blocked_response(tc_id)
         return await original_ainvoke(self, input, config=config, **kwargs)
 
     original_arun = BaseTool.arun
@@ -1085,7 +1147,7 @@ def _patch_base_tool() -> None:
     ) -> Any:  # noqa: ANN401
         """Gate on arun — AgentExecutor calls tool.arun directly."""
         if tool_call_id and await _async_gate(tool_call_id):
-            return _BLOCKED_CONTENT
+            return _blocked_response(tool_call_id)
         return await original_arun(
             self, tool_input, *args, tool_call_id=tool_call_id, **kwargs
         )
@@ -1138,27 +1200,41 @@ def _patch_agent_executor() -> None:
         tc_id = getattr(agent_action, "tool_call_id", None)
         if tc_id:
             ws = _ws_client
-            if (
-                ws is not None
-                and ws._login_ack_received.is_set()
-                and ws.policy_active()
-            ):  # pyright: ignore[reportPrivateUsage]
-                cfg = _get_config()
-                timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-                verdict = await ws.wait_for_tool_call_verdict(tc_id, timeout)
-                if verdict is None:
-                    logger.warning(
-                        "AgentExecutor: verdict timeout for tool_call_id=%s, blocking (fail-closed)",
-                        tc_id,
-                    )
-                    return AgentStep(action=agent_action, observation=_BLOCKED_CONTENT)
-                if _should_halt(verdict):
-                    logger.warning(
-                        "halting tool execution for event_id=%s mad_code=%s",
-                        verdict.event_id,
-                        verdict.mad_code,
-                    )
-                    return AgentStep(action=agent_action, observation=_BLOCKED_CONTENT)
+            if ws is not None:
+                if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+                    try:
+                        await asyncio.wait_for(
+                            ws._login_ack_received.wait(),  # pyright: ignore[reportPrivateUsage]
+                            timeout=5.0,
+                        )
+                    except TimeoutError:
+                        logger.warning(
+                            "AgentExecutor: LoginAck not received within 5s; blocking"
+                        )
+                        return AgentStep(
+                            action=agent_action, observation=_BLOCKED_CONTENT
+                        )
+                if ws.policy_active():
+                    cfg = _get_config()
+                    timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
+                    verdict = await ws.wait_for_tool_call_verdict(tc_id, timeout)
+                    if verdict is None:
+                        logger.warning(
+                            "AgentExecutor: verdict timeout for tool_call_id=%s, blocking (fail-closed)",
+                            tc_id,
+                        )
+                        return AgentStep(
+                            action=agent_action, observation=_BLOCKED_CONTENT
+                        )
+                    if _should_halt(verdict):
+                        logger.warning(
+                            "halting tool execution for event_id=%s mad_code=%s",
+                            verdict.event_id,
+                            verdict.mad_code,
+                        )
+                        return AgentStep(
+                            action=agent_action, observation=_BLOCKED_CONTENT
+                        )
         return await original_aperform(
             self, name_to_tool_map, color_mapping, agent_action, run_manager
         )

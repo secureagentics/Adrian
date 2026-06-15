@@ -142,10 +142,16 @@ class TestWaitForToolVerdict:
 
 class TestToolNodePatchBlocking:
     async def test_in_scope_block_verdict_halts_tool(self, tmp_path: Path) -> None:
-        """MODE_BLOCK + policy_m4=true + mad_code='M4_a' → halt with synthetic ToolMessage."""
+        """MODE_BLOCK + policy_m4=true + mad_code='M4_a' → BaseTool.ainvoke gate blocks.
 
-        def _real_tool(x: str) -> str:
-            """Real tool stub for block-mode tests."""
+        The verdict gate lives on BaseTool (the universal layer), not
+        ToolNode.ainvoke. Uses an async tool so BaseTool.ainvoke (not
+        BaseTool.invoke) is the entry point — matching the production
+        path for create_react_agent with async tools.
+        """
+
+        async def _real_tool(x: str) -> str:
+            """Real async tool stub for block-mode tests."""
             _real_tool.called = True  # type: ignore[attr-defined]
 
             return x
@@ -180,6 +186,7 @@ class TestToolNodePatchBlocking:
 
         result = await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
 
+        # BaseTool.ainvoke gate blocks — tool body does NOT run.
         assert _real_tool.called is False  # type: ignore[attr-defined]
         msgs = result["messages"]
         assert len(msgs) == 1
@@ -190,7 +197,7 @@ class TestToolNodePatchBlocking:
 
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
+        async def _real_tool(x: str) -> str:
             """Real tool stub for block-mode tests."""
             captured.append(x)
 
@@ -226,11 +233,12 @@ class TestToolNodePatchBlocking:
 
         assert captured == ["hi"]
 
-    async def test_timeout_fail_open_runs_tool(self, tmp_path: Path) -> None:
+    async def test_timeout_fail_closed_blocks_tool(self, tmp_path: Path) -> None:
+        """Verdict timeout in MODE_BLOCK → fail-closed (tool does NOT run)."""
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
-            """Real tool stub for block-mode tests."""
+        async def _real_tool(x: str) -> str:
+            """Real async tool stub for block-mode tests."""
             captured.append(x)
 
             return x
@@ -248,7 +256,7 @@ class TestToolNodePatchBlocking:
         _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
         ws._connected.set()
         ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
-        # No pending future → wait_for_verdict times out → fail-open.
+        # No pending future → wait_for_verdict times out → fail-closed (MODE_BLOCK).
 
         tool_node = ToolNode([_real_tool])
         ai = AIMessage(
@@ -259,7 +267,8 @@ class TestToolNodePatchBlocking:
 
         await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
 
-        assert captured == ["hi"]
+        # Fail-closed: tool should NOT have run.
+        assert captured == []
 
 
 class TestModeAlert:
@@ -268,7 +277,7 @@ class TestModeAlert:
 
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
+        async def _real_tool(x: str) -> str:
             """Real tool stub for block-mode tests."""
             captured.append(x)
 
