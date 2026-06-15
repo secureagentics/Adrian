@@ -6,12 +6,13 @@ package api
 import "net/http"
 
 type overviewResponse struct {
-	TotalEvents     int            `json:"total_events"`
-	FlaggedVerdicts int            `json:"flagged_verdicts"`
-	PendingReviews  int            `json:"pending_reviews"`
-	ActiveAgents    int            `json:"active_agents"`
-	VerdictsByMAD   map[string]int `json:"verdicts_by_mad"`
-	Window          string         `json:"window"`
+	TotalEvents      int            `json:"total_events"`
+	FlaggedVerdicts  int            `json:"flagged_verdicts"`
+	ClassifierErrors int            `json:"classifier_errors"`
+	PendingReviews   int            `json:"pending_reviews"`
+	ActiveAgents     int            `json:"active_agents"`
+	VerdictsByMAD    map[string]int `json:"verdicts_by_mad"`
+	Window           string         `json:"window"`
 }
 
 type activityBucketEntry struct {
@@ -31,12 +32,13 @@ func (s *Server) handleStatsOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overviewResponse{
-		TotalEvents:     o.TotalEvents,
-		FlaggedVerdicts: o.FlaggedVerdicts,
-		PendingReviews:  o.PendingReviews,
-		ActiveAgents:    o.ActiveAgents,
-		VerdictsByMAD:   o.VerdictsByMAD,
-		Window:          "24h",
+		TotalEvents:      o.TotalEvents,
+		FlaggedVerdicts:  o.FlaggedVerdicts,
+		ClassifierErrors: o.ClassifierErrors,
+		PendingReviews:   o.PendingReviews,
+		ActiveAgents:     o.ActiveAgents,
+		VerdictsByMAD:    o.VerdictsByMAD,
+		Window:           "24h",
 	})
 }
 

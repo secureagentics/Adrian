@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { AlertExplanation } from '@/components/alert-explanation'
 import { Badge } from '@/components/badge'
 import { JsonBlock } from '@/components/json-block'
-import { madBadgeColor, timeAgo } from '@/lib/utils'
+import { isClassifierErrorVerdict, timeAgo, verdictBadgeColor, verdictBadgeLabel } from '@/lib/utils'
 
 type ReviewSummary = {
   id: string
@@ -14,6 +14,7 @@ type ReviewSummary = {
   verdict_id: string
   session_id: string
   mad_code: string
+  verdict_status: string
   status: string
   created_at: string
 }
@@ -21,6 +22,7 @@ type ReviewSummary = {
 type ReviewDetail = ReviewSummary & {
   event_payload?: any
   classification?: string
+  reasoning?: string
 }
 
 export default function ReviewsPage() {
@@ -93,7 +95,7 @@ export default function ReviewsPage() {
         <div className="bg-surface-raised border border-surface-border rounded-lg p-8 text-center">
           <p className="text-sm text-ink mb-1">Nothing waiting on you</p>
           <p className="text-xs text-ink-3 max-w-md mx-auto">
-            When policy mode is HITL and a flagged verdict lands in scope, the SDK pauses and the event appears here.
+            When policy mode is HITL and a flagged verdict or fail-closed classifier error lands in scope, the SDK pauses and the event appears here.
           </p>
         </div>
       ) : (
@@ -109,7 +111,7 @@ export default function ReviewsPage() {
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <Badge label={r.mad_code} className={madBadgeColor(r.mad_code)} />
+                    <Badge label={verdictBadgeLabel(r)} className={verdictBadgeColor(r)} />
                     <span className="text-xs text-ink-3 font-mono ml-auto">{timeAgo(r.created_at)}</span>
                   </div>
                   <div className="font-mono text-[11px] text-ink-3 truncate">
@@ -126,7 +128,7 @@ export default function ReviewsPage() {
             ) : (
               <div className="bg-surface-raised border border-surface-border rounded-lg p-5 space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
-                  <Badge label={detail.mad_code} className={madBadgeColor(detail.mad_code)} />
+                  <Badge label={verdictBadgeLabel(detail)} className={verdictBadgeColor(detail)} />
                   <Link
                     href={`/sessions/${detail.session_id}#event-${detail.event_id}`}
                     className="text-xs text-ink-2 hover:underline font-mono ml-auto"
@@ -135,7 +137,21 @@ export default function ReviewsPage() {
                   </Link>
                 </div>
 
-                <AlertExplanation madCode={detail.mad_code} />
+                {isClassifierErrorVerdict(detail) ? (
+                  <div className="border border-surface-border rounded-lg p-3 bg-surface-overlay/30">
+                    <p className="text-sm text-ink">Classifier error</p>
+                    <p className="text-xs text-ink-3 mt-1">
+                      The classifier did not return a MAD code. Approving resumes the paused SDK action; rejecting returns a blocked tool response.
+                    </p>
+                    {detail.reasoning && (
+                      <p className="text-xs text-ink-3 font-mono break-words mt-3">
+                        {detail.reasoning}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <AlertExplanation madCode={detail.mad_code} />
+                )}
 
                 <div>
                   <p className="text-[12.5px] text-ink-3 mb-1">Event payload</p>

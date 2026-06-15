@@ -80,6 +80,7 @@ function PolicyTab() {
           policy_m2: !!policy.policy_m2,
           policy_m3: !!policy.policy_m3,
           policy_m4: !!policy.policy_m4,
+          fail_closed_on_classifier_error: !!policy.fail_closed_on_classifier_error,
         }),
       })
       setStatus('saved')
@@ -139,12 +140,27 @@ function PolicyTab() {
         </div>
       )}
 
+      <div className="border border-surface-border rounded p-3 space-y-3 bg-surface-overlay/30">
+        <p className="text-[12.5px] text-ink-3">
+          Classifier failure handling
+        </p>
+        <CodeToggle
+          label="Fail closed on classifier error"
+          description="When enabled, classifier outages or unparseable classifier responses stop BLOCK-mode tool execution and send HITL-mode actions for review."
+          value={!!policy.fail_closed_on_classifier_error}
+          onChange={v => setPolicy({ ...policy, fail_closed_on_classifier_error: v })}
+        />
+        <p className="text-xs text-ink-3 leading-relaxed">
+          Older SDK versions ignore this flag. Update agents to the SDK version
+          shipped with this dashboard before relying on fail-closed enforcement.
+        </p>
+      </div>
+
       <div className="border border-surface-border rounded p-3 bg-surface-overlay/30 text-xs text-ink-3 leading-relaxed">
         <span className="font-mono text-warn tracking-wider">NOTE - </span>
-        Saving disconnects every active SDK session for this org so each one
-        reconnects with the new policy on its next event. Events already
-        in-flight at the moment of save are classified against the previous
-        policy - expect brief discrepancies for a few seconds after a change.
+        Mode changes apply when an SDK reconnects. The classifier-error
+        fail-closed flag is included on future verdicts, so BLOCK-mode timeout
+        decisions refresh after the next verdict snapshot reaches the SDK.
       </div>
 
       <div className="flex items-center gap-3">

@@ -10,11 +10,12 @@ import (
 
 // Overview is the 24h summary the dashboard home renders.
 type Overview struct {
-	TotalEvents     int
-	FlaggedVerdicts int
-	PendingReviews  int
-	ActiveAgents    int
-	VerdictsByMAD   map[string]int
+	TotalEvents      int
+	FlaggedVerdicts  int
+	ClassifierErrors int
+	PendingReviews   int
+	ActiveAgents     int
+	VerdictsByMAD    map[string]int
 }
 
 // ActivityBucket is one bin in the time-series response.
@@ -35,12 +36,22 @@ func (s *Store) StatsOverview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 
-	// Flagged = anything other than M0/empty, i.e. an actual MAD code.
+	// Flagged = real non-M0 MAD findings. Classifier errors are tracked
+	// separately below so outages do not inflate security-finding totals.
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT count(*) FROM verdicts
 		 WHERE created_at >= datetime('now', ?)
+		   AND verdict_status = 'ok'
 		   AND mad_code != '' AND mad_code NOT LIKE 'M0%'`, window,
 	).Scan(&o.FlaggedVerdicts); err != nil {
+		return nil, err
+	}
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM verdicts
+		 WHERE created_at >= datetime('now', ?)
+		   AND verdict_status = 'error'`, window,
+	).Scan(&o.ClassifierErrors); err != nil {
 		return nil, err
 	}
 
@@ -59,7 +70,8 @@ func (s *Store) StatsOverview(ctx context.Context) (*Overview, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT
 		     CASE
-		         WHEN mad_code LIKE 'M0%' OR mad_code = '' THEN 'M0'
+		         WHEN verdict_status = 'error' THEN 'error'
+		         WHEN mad_code LIKE 'M0%' THEN 'M0'
 		         WHEN mad_code LIKE 'M2%' THEN 'M2'
 		         WHEN mad_code LIKE 'M3%' THEN 'M3'
 		         WHEN mad_code LIKE 'M4%' THEN 'M4'

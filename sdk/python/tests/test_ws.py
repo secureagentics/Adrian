@@ -299,6 +299,26 @@ class TestRecvLoop:
         assert resolved.event_id == "evt-1"
         assert resolved.mad_code == "M4_a"
 
+    async def test_verdict_frame_refreshes_policy_without_switching_mode(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        client._mode = pb.MODE_ALERT
+        client._policy = pb.PolicySnapshot(
+            mode=pb.MODE_ALERT,
+            fail_closed_on_classifier_error=False,
+        )
+
+        verdict = pb.Verdict(
+            event_id="evt-1",
+            policy=pb.PolicySnapshot(
+                mode=pb.MODE_BLOCK,
+                fail_closed_on_classifier_error=True,
+            ),
+        )
+        await client._on_verdict_frame(verdict)
+
+        assert client._mode == pb.MODE_ALERT
+        assert client.fail_closed_on_classifier_error() is True
+
 
 # ------------------------------------------------------------------
 # Block-mode primitives

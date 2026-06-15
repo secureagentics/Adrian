@@ -39,6 +39,7 @@ type reviewDetail struct {
 	reviewSummary
 	EventPayload   json.RawMessage `json:"event_payload,omitempty"`
 	Classification string          `json:"classification,omitempty"`
+	Reasoning      string          `json:"reasoning,omitempty"`
 }
 
 type reviewResolveResponse struct {
@@ -49,8 +50,14 @@ type reviewResolveResponse struct {
 
 func (s *Server) handleListReviews(w http.ResponseWriter, r *http.Request) {
 	pg := parsePagination(r)
-	status := r.URL.Query().Get("status")
-	rows, total, err := s.store.ListHitlQueue(r.Context(), status, pg.PerPage, pg.Offset)
+	q := r.URL.Query()
+	status := q.Get("status")
+	verdictStatus := q.Get("verdict_status")
+	if verdictStatus != "" && !validVerdictStatus(verdictStatus) {
+		writeError(w, http.StatusBadRequest, "invalid verdict_status")
+		return
+	}
+	rows, total, err := s.store.ListHitlQueue(r.Context(), status, verdictStatus, pg.PerPage, pg.Offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -81,6 +88,7 @@ func (s *Server) handleGetReview(w http.ResponseWriter, r *http.Request) {
 	resp := reviewDetail{
 		reviewSummary:  reviewToSummary(&row.HitlReview),
 		Classification: row.Classification,
+		Reasoning:      row.Reasoning,
 	}
 	if row.EventPayloadJSON != "" {
 		resp.EventPayload = json.RawMessage(row.EventPayloadJSON)
@@ -128,7 +136,7 @@ func (s *Server) resolveReview(w http.ResponseWriter, r *http.Request, status st
 			EventId:   row.EventID,
 			SessionId: row.SessionID,
 			MadCode:   row.MADCode,
-			Status:    pb.VerdictStatus_VERDICT_STATUS_OK,
+			Status:    reviewVerdictStatusProto(row.VerdictStatus),
 			Policy:    s.policySnapshotProto(pol),
 			Hitl:      &pb.HitlResponse{ContinueExecution: continueExec},
 		}},
@@ -164,4 +172,15 @@ func reviewToSummary(r *store.HitlReview) reviewSummary {
 		out.ReviewedAt = r.ReviewedAt.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 	return out
+}
+
+func reviewVerdictStatusProto(status string) pb.VerdictStatus {
+	switch status {
+	case "error":
+		return pb.VerdictStatus_VERDICT_STATUS_ERROR
+	case "ok":
+		return pb.VerdictStatus_VERDICT_STATUS_OK
+	default:
+		return pb.VerdictStatus_VERDICT_STATUS_UNSPECIFIED
+	}
 }

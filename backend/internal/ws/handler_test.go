@@ -254,6 +254,101 @@ func TestClassifierFailurePersistsAndPublishesErrorVerdict(t *testing.T) {
 	}
 }
 
+func TestClassifierFailureAlertPersistsWithoutPublish(t *testing.T) {
+	db, conn := classifierFailureConn(t, "alert", false)
+
+	eventID := uuid.NewString()
+	if err := sendPairedEvent(conn, classifierFailureToolEvent(eventID, "classifier-failure-alert")); err != nil {
+		t.Fatalf("send paired_batch: %v", err)
+	}
+
+	if err := expectNoServerFrame(conn, 250*time.Millisecond); err == nil {
+		t.Fatal("expected no SDK verdict in alert mode")
+	}
+	assertStoredErrorVerdict(t, db, eventID)
+}
+
+func TestClassifierFailureHitlFailClosedQueuesActionable(t *testing.T) {
+	db, conn := classifierFailureConn(t, "hitl", true)
+
+	eventID := uuid.NewString()
+	if err := sendPairedEvent(conn, classifierFailureActionableEvent(eventID, "classifier-failure-hitl")); err != nil {
+		t.Fatalf("send paired_batch: %v", err)
+	}
+
+	if err := expectNoServerFrame(conn, 250*time.Millisecond); err == nil {
+		t.Fatal("expected actionable fail-closed ERROR verdict to be held for HITL")
+	}
+	assertStoredErrorVerdict(t, db, eventID)
+
+	var queued int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM hitl_queue h
+		 JOIN verdicts v ON v.id = h.verdict_id
+		 WHERE h.event_id = ? AND h.mad_code = '' AND v.verdict_status = 'error'`,
+		eventID,
+	).Scan(&queued); err != nil {
+		t.Fatalf("query hitl_queue: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued error reviews = %d, want 1", queued)
+	}
+}
+
+func TestClassifierFailureHitlFailClosedNonActionablePublishes(t *testing.T) {
+	db, conn := classifierFailureConn(t, "hitl", true)
+
+	eventID := uuid.NewString()
+	if err := sendPairedEvent(conn, classifierFailureToolEvent(eventID, "classifier-failure-hitl-nonactionable")); err != nil {
+		t.Fatalf("send paired_batch: %v", err)
+	}
+
+	frame, err := readServerFrame(conn)
+	if err != nil {
+		t.Fatalf("read verdict: %v", err)
+	}
+	if got := frame.GetVerdict().GetStatus(); got != bpb.VerdictStatus_VERDICT_STATUS_ERROR {
+		t.Fatalf("pushed status = %v, want ERROR", got)
+	}
+	assertStoredErrorVerdict(t, db, eventID)
+
+	var queued int
+	if err := db.QueryRow(`SELECT count(*) FROM hitl_queue WHERE event_id = ?`, eventID).Scan(&queued); err != nil {
+		t.Fatalf("query hitl_queue: %v", err)
+	}
+	if queued != 0 {
+		t.Fatalf("queued reviews = %d, want 0", queued)
+	}
+}
+
+func TestClassifierFailureHitlQueueFailureFallsBackToPublish(t *testing.T) {
+	db, conn := classifierFailureConn(t, "hitl", true)
+	if _, err := db.Exec(`
+CREATE TRIGGER fail_hitl_insert
+BEFORE INSERT ON hitl_queue
+BEGIN
+    SELECT RAISE(FAIL, 'forced hitl insert failure');
+END;
+`); err != nil {
+		t.Fatalf("create hitl failure trigger: %v", err)
+	}
+
+	eventID := uuid.NewString()
+	if err := sendPairedEvent(conn, classifierFailureActionableEvent(eventID, "classifier-failure-hitl-fallback")); err != nil {
+		t.Fatalf("send paired_batch: %v", err)
+	}
+
+	frame, err := readServerFrame(conn)
+	if err != nil {
+		t.Fatalf("read verdict: %v", err)
+	}
+	verdict := frame.GetVerdict()
+	if verdict.GetStatus() != bpb.VerdictStatus_VERDICT_STATUS_ERROR || verdict.GetMadCode() != "" {
+		t.Fatalf("pushed verdict = (%q, %v), want ('', ERROR)", verdict.GetMadCode(), verdict.GetStatus())
+	}
+	assertStoredErrorVerdict(t, db, eventID)
+}
+
 func TestDuplicateEventRetryKeepsWSOpen(t *testing.T) {
 	db := openInMemoryDB(t)
 	t.Cleanup(func() { _ = db.Close() })
@@ -648,6 +743,120 @@ type fakeClassifier struct {
 	calls *int32
 }
 
+func classifierFailureConn(t *testing.T, mode string, failClosed bool) (*sql.DB, *websocket.Conn) {
+	t.Helper()
+
+	db := openInMemoryDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+
+	st := store.New(db)
+	plaintextKey := "adr_local_test_key_classifier_failure_" + uuid.NewString()
+	keyHash := sha256Hex(plaintextKey)
+	insertAPIKey(t, db, keyHash)
+
+	failClosedInt := 0
+	if failClosed {
+		failClosedInt = 1
+	}
+	if _, err := db.Exec(
+		`UPDATE policies SET mode = ?, fail_closed_on_classifier_error = ? WHERE id = 1`,
+		mode, failClosedInt,
+	); err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "classifier exploded", http.StatusInternalServerError)
+	}))
+	t.Cleanup(llm.Close)
+	classifier := engine.NewHTTPClient(llm.URL, "test-key", "test-model", nil, nil)
+
+	mux := http.NewServeMux()
+	mux.Handle("/ws", ws.AuthMiddleware(st)(ws.NewHandler(st, classifier, ws.NewHub(), nil, nil)))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	header := http.Header{"Authorization": {"Bearer " + plaintextKey}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := writeProto(conn, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_Login{Login: &bpb.SessionLogin{
+			SessionId: "classifier-failure-sess-" + uuid.NewString(), SchemaVersion: 2,
+		}},
+	}); err != nil {
+		t.Fatalf("send login: %v", err)
+	}
+	if _, err := readServerFrame(conn); err != nil {
+		t.Fatalf("read login_ack: %v", err)
+	}
+	return db, conn
+}
+
+func classifierFailureToolEvent(eventID, sessionID string) *bpb.PairedEvent {
+	return &bpb.PairedEvent{
+		EventId: eventID, SessionId: sessionID,
+		RunId:    "run-classifier-failure",
+		PairType: bpb.PairType_PAIR_TYPE_TOOL,
+		Agent:    &bpb.AgentContext{AgentId: "failure-agent"},
+		Data: &bpb.PairedEvent_Tool{Tool: &bpb.ToolPairData{
+			ToolName: "noop", ToolCallId: "tc-classifier-failure", Input: "{}", Output: "ok",
+		}},
+	}
+}
+
+func classifierFailureActionableEvent(eventID, sessionID string) *bpb.PairedEvent {
+	return &bpb.PairedEvent{
+		EventId: eventID, SessionId: sessionID,
+		RunId:    "run-classifier-failure",
+		PairType: bpb.PairType_PAIR_TYPE_LLM,
+		Agent:    &bpb.AgentContext{AgentId: "failure-agent"},
+		Data: &bpb.PairedEvent_Llm{Llm: &bpb.LlmPairData{
+			Model:  "test-model",
+			Output: "calling tool",
+			ToolCalls: []*bpb.ToolCall{{
+				Name: "noop", Id: "tc-classifier-failure", Args: "{}",
+			}},
+		}},
+	}
+}
+
+func sendPairedEvent(conn *websocket.Conn, ev *bpb.PairedEvent) error {
+	return writeProto(conn, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_PairedBatch{PairedBatch: &bpb.PairedEventBatch{
+			Events: []*bpb.PairedEvent{ev},
+		}},
+	})
+}
+
+func expectNoServerFrame(conn *websocket.Conn, timeout time.Duration) error {
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	_, _, err := conn.ReadMessage()
+	_ = conn.SetReadDeadline(time.Time{})
+	return err
+}
+
+func assertStoredErrorVerdict(t *testing.T, db *sql.DB, eventID string) {
+	t.Helper()
+	var madCode, classification, verdictStatus string
+	if err := db.QueryRow(
+		`SELECT mad_code, classification, verdict_status FROM verdicts WHERE event_id = ?`,
+		eventID,
+	).Scan(&madCode, &classification, &verdictStatus); err != nil {
+		t.Fatalf("query verdict: %v", err)
+	}
+	if madCode != "" || classification != "error" || verdictStatus != "error" {
+		t.Fatalf("stored verdict = (%q, %q, %q), want ('', error, error)",
+			madCode, classification, verdictStatus)
+	}
+}
+
 func (f *fakeClassifier) Classify(_ context.Context, _ *bpb.PairedEvent, _ string) (*engine.Verdict, error) {
 	if f.calls != nil {
 		atomic.AddInt32(f.calls, 1)
@@ -736,7 +945,8 @@ func statusOrZero(r *http.Response) int {
 }
 
 // testSchema is the minimum subset of 001_initial_schema.sql the WS
-// handler exercises (api_keys, policies, events, verdicts, mcp_servers).
+// handler exercises (api_keys, policies, events, verdicts, mcp_servers,
+// hitl_queue).
 // Embedding the full migration file here would couple the test to the
 // migration's evolution.
 const testSchema = `
@@ -797,5 +1007,16 @@ CREATE TABLE agents (
     first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     last_seen  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata   TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE hitl_queue (
+    id          TEXT PRIMARY KEY,
+    event_id    TEXT NOT NULL UNIQUE,
+    verdict_id  TEXT,
+    session_id  TEXT,
+    mad_code    TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 `

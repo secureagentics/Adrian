@@ -168,6 +168,62 @@ class TestHitlMode:
 
         assert captured == ["hi"]
 
+    async def test_error_review_approve_continues(self, tmp_path: Path) -> None:
+        """ERROR verdict + HITL approve still resumes the tool."""
+        captured: list[str] = []
+        ws = _init_with_ws(tmp_path)
+        policy = pb.PolicySnapshot(
+            mode=pb.MODE_HITL,
+            fail_closed_on_classifier_error=True,
+        )
+        _apply_mode(ws, policy)
+        ws._tool_call_id_to_event_id["tc-1"] = "evt-1"
+
+        verdict = pb.Verdict(
+            event_id="evt-1",
+            status=pb.VERDICT_STATUS_ERROR,
+            mad_code="",
+            policy=policy,
+        )
+        verdict.hitl.continue_execution = True
+        ws.register_pending("evt-1").set_result(verdict)
+
+        result = await ToolNode([_stub_tool(captured)]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
+            _ainvoke_state(),
+            config=_runtime_config(),
+        )
+
+        assert captured == ["hi"]
+        assert "BLOCKED" not in result["messages"][0].content
+
+    async def test_error_review_reject_halts(self, tmp_path: Path) -> None:
+        """ERROR verdict + HITL reject blocks the tool."""
+        captured: list[str] = []
+        ws = _init_with_ws(tmp_path)
+        policy = pb.PolicySnapshot(
+            mode=pb.MODE_HITL,
+            fail_closed_on_classifier_error=True,
+        )
+        _apply_mode(ws, policy)
+        ws._tool_call_id_to_event_id["tc-1"] = "evt-1"
+
+        verdict = pb.Verdict(
+            event_id="evt-1",
+            status=pb.VERDICT_STATUS_ERROR,
+            mad_code="",
+            policy=policy,
+        )
+        verdict.hitl.continue_execution = False
+        ws.register_pending("evt-1").set_result(verdict)
+
+        result = await ToolNode([_stub_tool(captured)]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
+            _ainvoke_state(),
+            config=_runtime_config(),
+        )
+
+        assert captured == []
+        assert "BLOCKED" in result["messages"][0].content
+
 
 # ------------------------------------------------------------------
 # Stray HITL resolution + protocol error

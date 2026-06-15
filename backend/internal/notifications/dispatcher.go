@@ -69,7 +69,9 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // would mean state outside SQLite).
 func (d *Dispatcher) fanout(ctx context.Context, vn VerdictNotification) {
 	if vn.MADCode == "" || strings.HasPrefix(vn.MADCode, "M0") {
-		// Benign verdicts don't fan out; webhooks are for flagged events.
+		// Empty MAD codes (classifier errors) and M0 benign verdicts do
+		// not fan out; these webhooks are for real flagged MAD findings.
+		// Operational outage alerts should be a separate alert type.
 		return
 	}
 	hooks, err := d.store.ListWebhooks(ctx, true)

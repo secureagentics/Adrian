@@ -193,10 +193,11 @@ def init(
         session_id: Session identifier.  Falls back to
             ``ADRIAN_SESSION_ID``, then to a per-cwd persistent UUID.
             See :mod:`adrian.session_persistence`.
-        block_timeout: Max seconds to wait for a verdict in ``MODE_BLOCK``
-            before fail-open.  Ignored in ``MODE_ALERT`` (no wait) and
-            ``MODE_HITL`` (wait indefinitely).  Falls back to
-            ``ADRIAN_BLOCK_TIMEOUT``.
+        block_timeout: Max seconds to wait for a verdict in ``MODE_BLOCK``.
+            Timeout handling follows the server policy's
+            ``fail_closed_on_classifier_error`` flag.  Ignored in
+            ``MODE_ALERT`` (no wait) and ``MODE_HITL`` (wait indefinitely).
+            Falls back to ``ADRIAN_BLOCK_TIMEOUT``.
         on_event: Callback for every paired event.
         on_verdict: Callback for every verdict.
         on_block: Callback for BLOCK-tier verdicts (M3 / M4).  Notification
@@ -814,12 +815,16 @@ def _should_halt(verdict: pb.Verdict) -> bool:
     """Decide whether a verdict should halt tool execution.
 
     HITL resolutions override everything: ``continue_execution=False``
-    means halt, ``True`` means continue.  Otherwise the per-MAD policy
-    bool is the sole scope authority, if the verdict's tier is
+    means halt, ``True`` means continue.  Classifier ERROR verdicts
+    follow ``fail_closed_on_classifier_error``.  Otherwise the per-MAD
+    policy bool is the sole scope authority: if the verdict's tier is
     in-scope, halt; if not, continue.
     """
     if verdict.HasField("hitl"):
         return not verdict.hitl.continue_execution
+
+    if verdict.status == pb.VERDICT_STATUS_ERROR:
+        return bool(verdict.policy.fail_closed_on_classifier_error)
 
     mad_prefix = verdict.mad_code[:2]
     in_scope = {
@@ -861,7 +866,7 @@ def _patch_tool_node() -> None:
     In block mode, the async patch waits for the preceding LLM's verdict
     before executing tools.  On BLOCK (unless overridden by ``on_block``)
     it returns synthetic ``ToolMessage`` responses instead of running the
-    tools.  On timeout it fails open.
+    tools.  On timeout it follows ``fail_closed_on_classifier_error``.
     """
     try:
         from langgraph.prebuilt import ToolNode
@@ -937,12 +942,25 @@ def _patch_tool_node() -> None:
             # producing event_id to wait on, so let the tool run.
             return await original_ainvoke(self, input, config=config, **kwargs)
 
+        if tool_call_id not in ws._tool_call_id_to_event_id:  # pyright: ignore[reportPrivateUsage]
+            # Unknown / evicted correlation: there is no producing LLM
+            # event to gate, so this remains fail-open even when
+            # classifier-error fail-closed is enabled.
+            return await original_ainvoke(self, input, config=config, **kwargs)
+
         cfg = _get_config()
         timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
 
         verdict = await ws.wait_for_tool_call_verdict(tool_call_id, timeout)
 
         if verdict is None:
+            if ws._mode == pb.MODE_BLOCK and ws.fail_closed_on_classifier_error():  # pyright: ignore[reportPrivateUsage]
+                logger.warning(
+                    "verdict timeout for tool_call_id=%s, fail-closed",
+                    tool_call_id,
+                )
+                return _build_blocked_response(tool_calls)
+
             logger.warning(
                 "verdict timeout for tool_call_id=%s, fail-open",
                 tool_call_id,

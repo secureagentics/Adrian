@@ -5,13 +5,19 @@ package notifications
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/secureagentics/Adrian/backend/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 func TestValidateDiscordWebhookURL(t *testing.T) {
@@ -117,6 +123,54 @@ func TestSendNonDiscordURLRejected(t *testing.T) {
 	err := Send(context.Background(), "https://evil.example.com/x", Alert{})
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestDispatcherSkipsEmptyMADCode(t *testing.T) {
+	var posts int32
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&posts, 1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer mock.Close()
+
+	origHosts := allowedHosts
+	allowedHosts = []string{mock.URL + "/"}
+	defer func() { allowedHosts = origHosts }()
+
+	db, err := sql.Open("sqlite", "file:notifications?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+CREATE TABLE webhooks (
+    id                   TEXT PRIMARY KEY,
+    platform             TEXT NOT NULL DEFAULT 'discord',
+    webhook_url          TEXT NOT NULL,
+    alert_type           TEXT NOT NULL,
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    installed_by_user_id TEXT,
+    created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+`); err != nil {
+		t.Fatalf("create webhooks: %v", err)
+	}
+	st := store.New(db)
+	if err := st.CreateWebhook(context.Background(), uuid.NewString(), mock.URL+"/api/webhooks/1/tok", "all", ""); err != nil {
+		t.Fatalf("create webhook: %v", err)
+	}
+
+	d := NewDispatcher(st, "https://dash.example")
+	d.fanout(context.Background(), VerdictNotification{
+		EventID:        "ev-error",
+		SessionID:      "sess-error",
+		MADCode:        "",
+		Classification: "error",
+	})
+	if got := atomic.LoadInt32(&posts); got != 0 {
+		t.Fatalf("webhook posts = %d, want 0 for empty MAD code", got)
 	}
 }
 
