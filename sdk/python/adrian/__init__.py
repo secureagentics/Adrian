@@ -802,7 +802,7 @@ def _patch_langgraph() -> None:
 # --- 5. ToolNode ---
 
 
-def _extract_tool_calls(
+def _extract_tool_calls(  # pyright: ignore[reportUnusedFunction]
     state: dict[str, Any] | list[BaseMessage] | Any,
 ) -> list[dict[str, Any]]:
     """Extract tool_calls from ToolNode input (all three dispatch shapes).
@@ -878,52 +878,6 @@ def _patch_tool_node() -> None:
     original_invoke = ToolNode.invoke
     original_ainvoke = ToolNode.ainvoke
     original_astream = getattr(ToolNode, "astream", None)
-
-    async def _gate_tool_calls(state: Any) -> bool:  # noqa: ANN401
-        """Returns True if tools should be BLOCKED."""
-        ws = _ws_client
-        if ws is None:
-            return False
-        if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
-            try:
-                await asyncio.wait_for(ws._login_ack_received.wait(), timeout=5.0)  # pyright: ignore[reportPrivateUsage]
-            except TimeoutError:
-                logger.warning("ToolNode: LoginAck not received within 5s; blocking")
-                return True
-        if not ws.policy_active():
-            return False
-
-        tc_ids: list[str] = [
-            str(tc.get("id")) for tc in _extract_tool_calls(state) if tc.get("id")
-        ]
-        if not tc_ids:
-            return False
-
-        cfg = _get_config()
-        timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-        verdict = await ws.wait_for_tool_call_verdict(tc_ids[0], timeout)
-        if verdict is None:
-            logger.warning("ToolNode: verdict timeout, blocking (fail-closed)")
-            return True
-        if _should_halt(verdict):
-            logger.warning(
-                "halting tool execution for event_id=%s mad_code=%s",
-                verdict.event_id,
-                verdict.mad_code,
-            )
-            return True
-        return False
-
-    def _build_blocked(state: Any) -> dict[str, list[ToolMessage]]:  # noqa: ANN401
-        tc_ids = [tc.get("id") for tc in _extract_tool_calls(state) if tc.get("id")]
-        return {
-            "messages": [
-                ToolMessage(
-                    content="[BLOCKED by security policy]", tool_call_id=tid, name=""
-                )
-                for tid in tc_ids
-            ]
-        }
 
     def patched_invoke(
         self: Any,
