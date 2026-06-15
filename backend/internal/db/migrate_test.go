@@ -114,24 +114,128 @@ COMMIT;`),
 	}
 }
 
-func TestEmbeddedMigration002UpgradesPopulatedDB(t *testing.T) {
+func TestEmbeddedMigration002UpgradesPopulatedPre002DB(t *testing.T) {
 	conn := openTestDB(t)
 	defer conn.Close()
 
+	applyEmbedded001Only(t, conn)
+	seedPre002VerdictAndReview(t, conn)
+
+	applied, err := applyMigrations(conn, migrations.Files)
+	if err != nil {
+		t.Fatalf("apply embedded migrations: %v", err)
+	}
+	if got, want := applied, []string{"002_verdict_status_policy.sql"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("applied migrations = %v, want %v", got, want)
+	}
+
+	assert002SchemaAndData(t, conn)
+
+	applied, err = applyMigrations(conn, migrations.Files)
+	if err != nil {
+		t.Fatalf("second embedded apply: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("second embedded apply = %v, want no migrations", applied)
+	}
+}
+
+func TestEmbeddedMigration002RecordsCompletedSchemaAfterCrashBeforeLedger(t *testing.T) {
+	conn := openTestDB(t)
+	defer conn.Close()
+
+	applyEmbedded001Only(t, conn)
+	seedPre002VerdictAndReview(t, conn)
+
+	body, err := migrations.Files.ReadFile("002_verdict_status_policy.sql")
+	if err != nil {
+		t.Fatalf("read embedded 002 migration: %v", err)
+	}
+	if _, err := conn.Exec(string(body)); err != nil {
+		t.Fatalf("simulate completed 002 migration without ledger record: %v", err)
+	}
+	if migrationWasRecorded(t, conn, "002_verdict_status_policy.sql") {
+		t.Fatal("test setup unexpectedly recorded 002 migration")
+	}
+
+	applied, err := applyMigrations(conn, migrations.Files)
+	if err != nil {
+		t.Fatalf("recover after completed 002 without ledger: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("recovery applied migrations = %v, want none", applied)
+	}
+	if !migrationWasRecorded(t, conn, "002_verdict_status_policy.sql") {
+		t.Fatal("recovery did not record completed 002 migration")
+	}
+
+	assert002SchemaAndData(t, conn)
+}
+
+func TestEmbeddedMigration002RecoversAfterPolicyColumnAddedBeforeLedger(t *testing.T) {
+	conn := openTestDB(t)
+	defer conn.Close()
+
+	applyEmbedded001Only(t, conn)
+	seedPre002VerdictAndReview(t, conn)
+
+	if _, err := conn.Exec(migration002PolicyColumnSQL); err != nil {
+		t.Fatalf("simulate partial 002 policy-column migration: %v", err)
+	}
+	if migrationWasRecorded(t, conn, "002_verdict_status_policy.sql") {
+		t.Fatal("test setup unexpectedly recorded 002 migration")
+	}
+
+	applied, err := applyMigrations(conn, migrations.Files)
+	if err != nil {
+		t.Fatalf("recover after partial 002 without ledger: %v", err)
+	}
+	if got, want := applied, []string{"002_verdict_status_policy.sql"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("recovery applied migrations = %v, want %v", got, want)
+	}
+	if !migrationWasRecorded(t, conn, "002_verdict_status_policy.sql") {
+		t.Fatal("recovery did not record completed 002 migration")
+	}
+
+	assert002SchemaAndData(t, conn)
+
+	applied, err = applyMigrations(conn, migrations.Files)
+	if err != nil {
+		t.Fatalf("second embedded apply after recovery: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("second embedded apply after recovery = %v, want no migrations", applied)
+	}
+}
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:migratetest?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	return conn
+}
+
+func applyEmbedded001Only(t *testing.T, conn *sql.DB) {
+	t.Helper()
 	initialSQL, err := migrations.Files.ReadFile("001_initial_schema.sql")
 	if err != nil {
-		t.Fatalf("read 001 migration: %v", err)
+		t.Fatalf("read embedded 001 migration: %v", err)
 	}
 	applied, err := applyMigrations(conn, fstest.MapFS{
 		"001_initial_schema.sql": {Data: initialSQL},
 	})
 	if err != nil {
-		t.Fatalf("apply 001 migration: %v", err)
+		t.Fatalf("apply embedded 001 migration: %v", err)
 	}
 	if got, want := applied, []string{"001_initial_schema.sql"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("applied initial migrations = %v, want %v", got, want)
 	}
+}
 
+func seedPre002VerdictAndReview(t *testing.T, conn *sql.DB) {
+	t.Helper()
 	if _, err := conn.Exec(`
 INSERT INTO events (id, session_id, event_type, payload)
 VALUES ('evt-populated', 'sess-populated', 'llm', '{}');
@@ -140,16 +244,12 @@ VALUES ('verdict-populated', 'evt-populated', 'sess-populated', 'M4_a', 'block',
 INSERT INTO hitl_queue (id, event_id, verdict_id, session_id, mad_code)
 VALUES ('review-populated', 'evt-populated', 'verdict-populated', 'sess-populated', 'M4_a');
 `); err != nil {
-		t.Fatalf("seed populated database: %v", err)
+		t.Fatalf("seed populated pre-002 database: %v", err)
 	}
+}
 
-	applied, err = applyMigrations(conn, migrations.Files)
-	if err != nil {
-		t.Fatalf("apply embedded migrations: %v", err)
-	}
-	if got, want := applied, []string{"002_verdict_status_policy.sql"}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("applied upgrade migrations = %v, want %v", got, want)
-	}
+func assert002SchemaAndData(t *testing.T, conn *sql.DB) {
+	t.Helper()
 
 	var failClosed int
 	if err := conn.QueryRow(`SELECT fail_closed_on_classifier_error FROM policies WHERE id = 1`).Scan(&failClosed); err != nil {
@@ -203,23 +303,6 @@ VALUES ('verdict-error', 'evt-populated', 'sess-populated', '', 'error', 'error'
 	if rows.Next() {
 		t.Fatal("foreign_key_check returned violations after 002 migration")
 	}
-
-	applied, err = applyMigrations(conn, migrations.Files)
-	if err != nil {
-		t.Fatalf("second embedded apply: %v", err)
-	}
-	if len(applied) != 0 {
-		t.Fatalf("second embedded apply = %v, want no migrations", applied)
-	}
-}
-
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	conn, err := sql.Open("sqlite", "file:migratetest?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	return conn
 }
 
 func migrationWasRecorded(t *testing.T, conn *sql.DB, name string) bool {

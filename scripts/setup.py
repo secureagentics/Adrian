@@ -132,6 +132,11 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str
     for path in sql_files:
         if migration_applied(conn, path.name):
             continue
+        reconciled, applied_recovery = reconcile_migration_002(conn, path.name)
+        if reconciled:
+            if applied_recovery:
+                applied.append(path.name)
+            continue
         sql = path.read_text(encoding="utf-8")
         if NO_TRANSACTION_MARKER in sql:
             try:
@@ -143,15 +148,10 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str
                 conn.execute("PRAGMA foreign_keys=ON")
                 raise
         else:
-            quoted_name = path.name.replace("'", "''")
             try:
-                conn.executescript(
-                    "BEGIN;\n"
-                    f"{sql}\n"
-                    "INSERT INTO schema_migrations (name) "
-                    f"VALUES ('{quoted_name}');\n"
-                    "COMMIT;\n",
-                )
+                conn.executescript("BEGIN;\n" + sql + "\n")
+                conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (path.name,))
+                conn.commit()
             except sqlite3.Error:
                 conn.rollback()
                 raise
@@ -166,6 +166,125 @@ def migration_applied(conn: sqlite3.Connection, name: str) -> bool:
         (name,),
     ).fetchone()
     return row is not None
+
+
+def reconcile_migration_002(conn: sqlite3.Connection, name: str) -> tuple[bool, bool]:
+    """Recover 002 if it completed or stopped after adding the policy column."""
+    if name != "002_verdict_status_policy.sql":
+        return False, False
+
+    has_policy_column = table_has_column(conn, "policies", "fail_closed_on_classifier_error")
+    has_verdict_status = table_has_column(conn, "verdicts", "verdict_status")
+    allows_error_classification = table_sql_contains(conn, "verdicts", "'error'")
+
+    if has_policy_column and has_verdict_status and allows_error_classification:
+        conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (name,))
+        conn.commit()
+        return True, False
+
+    if has_policy_column:
+        try:
+            conn.executescript(MIGRATION_002_VERDICTS_RECOVERY_SQL)
+            conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (name,))
+            conn.commit()
+            return True, True
+        except sqlite3.Error:
+            conn.rollback()
+            conn.execute("PRAGMA foreign_keys=ON")
+            raise
+
+    if has_verdict_status and allows_error_classification:
+        conn.execute(MIGRATION_002_POLICY_COLUMN_SQL)
+        conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (name,))
+        conn.commit()
+        return True, True
+
+    return False, False
+
+
+def table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(
+        row[0] == column
+        for row in conn.execute("SELECT name FROM pragma_table_info(?)", (table,))
+    )
+
+
+def table_sql_contains(conn: sqlite3.Connection, table: str, needle: str) -> bool:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None and needle in row[0]
+
+
+MIGRATION_002_POLICY_COLUMN_SQL = """
+ALTER TABLE policies
+    ADD COLUMN fail_closed_on_classifier_error INTEGER NOT NULL DEFAULT 0
+        CHECK (fail_closed_on_classifier_error IN (0,1))
+"""
+
+
+MIGRATION_002_VERDICTS_RECOVERY_SQL = """
+PRAGMA foreign_keys=OFF;
+
+BEGIN;
+
+DROP TABLE IF EXISTS verdicts_new;
+
+CREATE TABLE verdicts_new (
+    id               TEXT    PRIMARY KEY,
+    event_id         TEXT    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    session_id       TEXT    NOT NULL,
+    agent_profile_id TEXT             REFERENCES agent_profiles(id) ON DELETE SET NULL,
+    mad_code         TEXT    NOT NULL,
+    classification   TEXT    NOT NULL CHECK (classification IN ('benign','notify','block','error')),
+    verdict_status   TEXT    NOT NULL DEFAULT 'ok'
+                                CHECK (verdict_status IN ('ok','error')),
+    reasoning        TEXT,
+    latency_ms       INTEGER,
+    tokens_used      INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+INSERT INTO verdicts_new (
+    id,
+    event_id,
+    session_id,
+    agent_profile_id,
+    mad_code,
+    classification,
+    verdict_status,
+    reasoning,
+    latency_ms,
+    tokens_used,
+    created_at
+)
+SELECT
+    id,
+    event_id,
+    session_id,
+    agent_profile_id,
+    mad_code,
+    classification,
+    'ok',
+    reasoning,
+    latency_ms,
+    tokens_used,
+    created_at
+FROM verdicts;
+
+DROP TABLE verdicts;
+ALTER TABLE verdicts_new RENAME TO verdicts;
+
+CREATE INDEX IF NOT EXISTS idx_verdicts_event_id   ON verdicts(event_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_session_id ON verdicts(session_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_created_at ON verdicts(created_at);
+
+COMMIT;
+
+PRAGMA foreign_key_check;
+PRAGMA foreign_keys=ON;
+"""
 
 
 def read_env(env_path: Path) -> dict[str, str]:
