@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adrian-sdk-oss"
-version = "1.0.0"
+version = "1.0.2"
 description = "Multi-agent security monitoring SDK for LangChain / LangGraph: paired-event capture, real-time classification, and block mode."
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -45,8 +45,8 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
-    "ruff>=0.15.0",
-    "basedpyright>=1.38.0",
+    "ruff==0.15.12",
+    "basedpyright==1.39.3",
     "pre-commit>=4.6.0",
     "langgraph==1.1.2",
     "langgraph-prebuilt==1.0.8",

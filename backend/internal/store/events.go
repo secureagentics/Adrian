@@ -65,17 +65,25 @@ type EventFilters struct {
 	MinMAD string
 }
 
-// InsertEvent persists one paired event. The payload column holds the
-// full JSON-encoded PairedEvent blob; downstream readers (dashboard,
-// engine) re-decode it as needed. SDK retries can replay the same
-// event_id, so duplicate primary-key inserts are ignored.
-func (s *Store) InsertEvent(ctx context.Context, e *Event) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO events
+// InsertEvent persists one paired event and reports whether a new row
+// was inserted. The payload column holds the full JSON-encoded
+// PairedEvent blob; downstream readers (dashboard, engine) re-decode it
+// as needed. SDK retries can replay the same event_id.
+func (s *Store) InsertEvent(ctx context.Context, e *Event) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO events
 		   (id, session_id, agent_id, agent_profile_id, event_type, run_id, payload, tokens_used)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (id) DO NOTHING`,
 		e.ID, e.SessionID, e.AgentID, e.AgentProfileID, e.EventType, e.RunID, e.PayloadJSON, e.TokensUsed)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // ListEvents returns a page of events matching the filters, plus the

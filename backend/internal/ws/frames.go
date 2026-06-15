@@ -21,6 +21,7 @@ const schemaVersion = 2
 // plus our application-specific 4xxx codes.
 const (
 	closeProtocolError     = 1002
+	closePolicyViolation   = 1008
 	closeInternalServerErr = 1011
 	closeQuotaExhausted    = 4003
 )

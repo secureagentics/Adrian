@@ -21,7 +21,7 @@ Thanks for considering a contribution. Adrian is open-source under the [Apache 2
 
 ## Local dev setup
 
-The Python SDK lives at `sdk/`. From the repo root:
+The Python SDK lives at `sdk/python/` (the TypeScript SDK lives at `sdk/typescript/`). From the repo root:
 
 ```sh
 make sdk-install            # creates .venv and installs sdk + dev deps via uv
@@ -31,7 +31,7 @@ pre-commit install          # wires the git hook
 
 After `pre-commit install`, every `git commit` runs the configured hooks on
 staged files: `ruff format`, `ruff check --fix`, `basedpyright` on
-`sdk/adrian/`, plus the standard whitespace / YAML / TOML checks. Hooks that
+`sdk/python/adrian/`, plus the standard whitespace / YAML / TOML checks. Hooks that
 modify files (formatter, autofix) leave the commit aborted; re-stage the files
 and commit again.
 
@@ -42,7 +42,7 @@ pre-commit run --all-files
 ```
 
 The config lives at [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
-Only Python files under `sdk/` and `scripts/` are in scope.
+Only Python files under `sdk/python/` and `scripts/` are in scope.
 
 ## Style
 

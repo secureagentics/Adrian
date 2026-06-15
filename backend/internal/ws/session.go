@@ -25,3 +25,16 @@ func (s *session) agentProfileID() *string {
 	}
 	return s.apiKey.AgentProfileID
 }
+
+// routeOwner returns the server-authenticated logical owner for hub routing.
+// Agent-profile keys may rotate, so profile ownership is preferred over raw
+// key ID to preserve reconnect continuity. Unprofiled keys fall back to key ID.
+func (s *session) routeOwner() string {
+	if s.apiKey == nil {
+		return ""
+	}
+	if s.apiKey.AgentProfileID != nil && *s.apiKey.AgentProfileID != "" {
+		return "agent_profile:" + *s.apiKey.AgentProfileID
+	}
+	return "api_key:" + s.apiKey.ID
+}

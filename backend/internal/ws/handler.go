@@ -99,7 +99,25 @@ func serve(ctx context.Context, conn *websocket.Conn, sess *session, st *store.S
 	// verdicts and HITL resolutions land here, drained by the writer
 	// goroutine. The LoginAck is written directly inside handleLogin
 	// (single goroutine, pre-register, no concurrency to serialise).
-	hubCh, deregister := hub.Register(sess.sessionID)
+	hubCh, deregister, err := hub.Register(sess.sessionID, sess.routeOwner())
+	if err != nil {
+		if errors.Is(err, ErrSessionOwnerConflict) {
+			slog.WarnContext(ctx, "ws.session_owner_conflict",
+				"session_id", sess.sessionID,
+				"api_key_id", sess.apiKey.ID,
+				"route_owner", sess.routeOwner(),
+			)
+			closeWith(conn, closePolicyViolation, "session_id already active for another owner")
+			return
+		}
+		slog.ErrorContext(ctx, "ws.session_register_failed",
+			"error", err,
+			"session_id", sess.sessionID,
+			"api_key_id", sess.apiKey.ID,
+		)
+		closeWith(conn, closeInternalServerErr, "internal error")
+		return
+	}
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
@@ -241,8 +259,30 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 	if err != nil {
 		return err
 	}
-	if err := st.InsertEvent(ctx, newEventRow(sess, ev, payloadJSON)); err != nil {
+	inserted, err := st.InsertEvent(ctx, newEventRow(sess, ev, payloadJSON))
+	if err != nil {
 		return err
+	}
+	if !inserted {
+		// A retry can race with the first in-flight delivery: event row
+		// already exists, but verdict insert has not landed yet. Poll a
+		// few times before giving up so we don't fail the WS batch on a
+		// benign duplicate.
+		for i := 0; i < 3; i++ {
+			existing, err := st.GetVerdictByEventID(ctx, ev.EventId)
+			if err == nil {
+				return dispatchVerdict(ctx, sess, st, hub, ev, snap, existing.ID, existing.MADCode)
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(25 * time.Millisecond):
+			}
+		}
+		return nil
 	}
 
 	// Refresh the runtime agents row so the dashboard's /agents view
@@ -296,6 +336,10 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 			verdict.MADCode, verdict.Classification)
 	}
 
+	return dispatchVerdict(ctx, sess, st, hub, ev, snap, vrow.ID, verdict.MADCode)
+}
+
+func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictID, madCode string) error {
 	// Mode-gated dispatch:
 	//   alert: persist verdict, do NOT notify the SDK (dashboard-only).
 	//   hitl + in-scope + actionable: persist + queue for human review,
@@ -304,7 +348,7 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 	//     no-op for the operator since the SDK never blocks on it).
 	//   hitl + out-of-scope: forward (no review queued for this code).
 	//   block: forward all verdicts; SDK is the enforcement point.
-	inScope := shouldFanOut(snap, verdict.MADCode)
+	inScope := shouldFanOut(snap, madCode)
 	switch snap.GetMode() {
 	case pb.Mode_MODE_ALERT:
 		// Dashboard-only: the verdict is persisted, the SDK is not
@@ -315,7 +359,7 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 			// Queue for human review and hold the verdict. The reviews
 			// REST handler resumes the SDK with a HitlResponse-bearing
 			// Verdict on approve/reject via the same hub channel.
-			if err := st.InsertHitlQueue(ctx, ev.EventId, vrow.ID, sess.sessionID, verdict.MADCode); err != nil {
+			if err := st.InsertHitlQueue(ctx, ev.EventId, verdictID, sess.sessionID, madCode); err != nil {
 				slog.ErrorContext(ctx, "hitl.insert_failed",
 					"error", err, "event_id", ev.EventId)
 			}
@@ -338,7 +382,7 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 			Verdict: &pb.Verdict{
 				EventId:   ev.EventId,
 				SessionId: sess.sessionID,
-				MadCode:   verdict.MADCode,
+				MadCode:   madCode,
 				Policy:    snap,
 			},
 		},

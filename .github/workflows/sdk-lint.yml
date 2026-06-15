@@ -1,0 +1,37 @@
+# Lint the bundled Python SDK on pull requests.
+#
+# Mirrors the local pre-commit hooks (ruff format, ruff check,
+# basedpyright) so what passes `pre-commit run` also passes CI. Scoped
+# to the SDK and scripts so it only runs when those change.
+
+name: SDK Lint
+
+on:
+  pull_request:
+    paths:
+      - "sdk/python/**"
+      - "scripts/**"
+      - ".github/workflows/sdk-lint.yml"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      # Install into a repo-root .venv (same as `make sdk-install`), which
+      # is where sdk/python/pyrightconfig.json's `venvPath: "../.."` expects
+      # it. A sdk/python/.venv (uv sync --project) would make basedpyright
+      # fail to find the venv and exit 3.
+      - name: Install SDK + dev deps
+        run: |
+          uv venv
+          uv pip install -e "./sdk/python[dev]"
+      - name: Ruff format
+        run: .venv/bin/ruff format --check sdk/python scripts
+      - name: Ruff lint
+        run: .venv/bin/ruff check sdk/python scripts
+      - name: Basedpyright
+        run: .venv/bin/basedpyright -p sdk/python sdk/python/adrian

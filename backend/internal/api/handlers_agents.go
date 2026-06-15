@@ -38,8 +38,13 @@ type agentSessionEntry struct {
 }
 
 type agentDetailResponse struct {
-	agentEntry
-	Sessions []agentSessionEntry `json:"sessions"`
+	ID               string              `json:"id"`
+	AgentID          string              `json:"agent_id"`
+	AgentProfileID   string              `json:"agent_profile_id"`
+	AgentProfileName string              `json:"agent_profile_name"`
+	FirstSeen        string              `json:"first_seen"`
+	LastSeen         string              `json:"last_seen"`
+	Sessions         []agentSessionEntry `json:"sessions"`
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +78,13 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := agentDetailResponse{
-		agentEntry: agentRowToEntry(row),
-		Sessions:   make([]agentSessionEntry, 0, len(sessions)),
+		ID:               row.ID,
+		AgentID:          row.AgentID,
+		AgentProfileID:   row.AgentProfileID,
+		AgentProfileName: row.AgentProfileName,
+		FirstSeen:        row.FirstSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
+		LastSeen:         row.LastSeen.UTC().Format("2006-01-02T15:04:05.000Z"),
+		Sessions:         make([]agentSessionEntry, 0, len(sessions)),
 	}
 	for _, sess := range sessions {
 		resp.Sessions = append(resp.Sessions, agentSessionEntry{

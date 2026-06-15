@@ -4,6 +4,7 @@
 package ws
 
 import (
+	"errors"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -13,7 +14,10 @@ import (
 
 func TestHubPublishDeliversToSubscriber(t *testing.T) {
 	h := NewHub()
-	ch, dereg := h.Register("sess-1")
+	ch, dereg, err := h.Register("sess-1", "owner-1")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	defer dereg()
 
 	frame := &pb.ServerFrame{Frame: &pb.ServerFrame_Verdict{Verdict: &pb.Verdict{
@@ -45,11 +49,17 @@ func TestHubPublishNoSubscriberReturnsFalse(t *testing.T) {
 
 func TestHubReRegisterClosesPriorChannel(t *testing.T) {
 	h := NewHub()
-	first, _ := h.Register("sess-x")
+	first, _, err := h.Register("sess-x", "owner-1")
+	if err != nil {
+		t.Fatalf("first Register: %v", err)
+	}
 
 	// New register replaces the slot; the old channel must close so a
 	// writer goroutine reading from it exits cleanly.
-	second, dereg := h.Register("sess-x")
+	second, dereg, err := h.Register("sess-x", "owner-1")
+	if err != nil {
+		t.Fatalf("second Register: %v", err)
+	}
 	defer dereg()
 
 	if _, ok := <-first; ok {
@@ -67,9 +77,39 @@ func TestHubReRegisterClosesPriorChannel(t *testing.T) {
 	}
 }
 
+func TestHubRejectsReRegisterFromDifferentOwner(t *testing.T) {
+	h := NewHub()
+	first, dereg, err := h.Register("sess-x", "owner-1")
+	if err != nil {
+		t.Fatalf("first Register: %v", err)
+	}
+	defer dereg()
+
+	second, secondDereg, err := h.Register("sess-x", "owner-2")
+	if !errors.Is(err, ErrSessionOwnerConflict) {
+		t.Fatalf("Register err = %v, want ErrSessionOwnerConflict", err)
+	}
+	if second != nil || secondDereg != nil {
+		t.Fatal("conflicting Register returned a subscriber")
+	}
+
+	if !h.Publish("sess-x", &pb.ServerFrame{
+		Frame: &pb.ServerFrame_Verdict{Verdict: &pb.Verdict{EventId: "ev-y"}},
+	}) {
+		t.Fatal("Publish to original subscriber should still succeed")
+	}
+	got := <-first
+	if len(got) == 0 {
+		t.Fatal("expected non-empty frame delivered to original subscriber")
+	}
+}
+
 func TestHubDeregisterRemovesEntry(t *testing.T) {
 	h := NewHub()
-	_, dereg := h.Register("sess-d")
+	_, dereg, err := h.Register("sess-d", "owner-1")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	dereg()
 	if h.Publish("sess-d", &pb.ServerFrame{
 		Frame: &pb.ServerFrame_Verdict{Verdict: &pb.Verdict{}},
