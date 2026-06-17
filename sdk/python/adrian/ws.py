@@ -977,7 +977,7 @@ class WebSocketClient:
                 event_id,
                 timeout,
             )
-            # Timed-out future is useless — remove so a retry can
+            # Timed-out future is useless - remove so a retry can
             # register a fresh one.
             self._pending_verdicts.pop(event_id, None)
             return None

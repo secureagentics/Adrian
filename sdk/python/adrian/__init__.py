@@ -863,7 +863,7 @@ def _patch_tool_node() -> None:
 
     ToolNode dispatches tools via tool.invoke (sync) even within async
     Pregel. BaseTool.invoke can't await a verdict from the event loop
-    thread, so we add the verdict gate here on ToolNode.ainvoke — the
+    thread, so we add the verdict gate here on ToolNode.ainvoke - the
     entry point Pregel calls before tool dispatch begins. This is a
     complementary gate to BaseTool (which covers direct callers).
     """
@@ -895,7 +895,7 @@ def _patch_tool_node() -> None:
         **kwargs: Any,  # noqa: A002, ANN401
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        # Verdict gate removed — BaseTool.ainvoke/arun is the single
+        # Verdict gate removed - BaseTool.ainvoke/arun is the single
         # gate layer. Gating here too caused double-gate: ToolNode
         # consumed the verdict future, BaseTool's gate registered a
         # fresh future that never resolved → 30s timeout on a benign
@@ -930,8 +930,8 @@ _BLOCKED_CONTENT = "[BLOCKED by security policy]"
 def _patch_base_tool() -> None:
     """Patch ``BaseTool.invoke`` and ``BaseTool.ainvoke`` with the verdict gate.
 
-    Every LangChain tool — whether dispatched by ToolNode, AgentExecutor,
-    create_react_agent, or a manual ``tool.invoke(tool_call)`` loop —
+    Every LangChain tool - whether dispatched by ToolNode, AgentExecutor,
+    create_react_agent, or a manual ``tool.invoke(tool_call)`` loop -
     funnels through ``BaseTool.invoke`` (sync) or ``BaseTool.ainvoke``
     (async). Gating here covers all frameworks in one place.
 
@@ -1007,56 +1007,64 @@ def _patch_base_tool() -> None:
         return False
 
     def _sync_gate(tool_call_id: str) -> bool:
-        """Sync verdict gate — works for pure-sync and worker-thread callers.
+        """Sync verdict gate - works for pure-sync and worker-thread callers.
 
-        Pure-sync (no event loop): runs ``_async_gate`` via
-        ``loop.run_until_complete``.
+        Worker-thread (the common LangGraph case: ``StructuredTool.ainvoke``
+        dispatches a *sync* tool via ``run_in_executor(self.invoke)``, so the
+        gate runs on a thread-pool worker while the WS event loop runs on
+        another thread): bridges the async gate onto the WS loop via
+        ``run_coroutine_threadsafe`` and blocks the worker until the verdict
+        resolves.
 
-        Worker-thread (Pregel dispatches sync tools on a thread-pool
-        worker while the event loop runs on the main thread): bridges
-        the async gate to the main loop via ``run_coroutine_threadsafe``
-        and blocks the worker thread until the verdict resolves.
+        Pure-sync (no event loop anywhere): runs ``_async_gate`` to
+        completion on this thread.
 
-        Event-loop thread (calling tool.invoke directly from async
-        code): cannot block — returns False (skip). The async path
-        (BaseTool.ainvoke) handles this case.
+        Event-loop thread (calling ``tool.invoke`` directly from async
+        code): cannot block without deadlocking - returns False (skip).
+        The async path (``BaseTool.ainvoke``) handles this case.
+
+        Thread detection uses ``asyncio.get_running_loop()`` rather than
+        ``get_event_loop()``: the latter raises ``RuntimeError`` on a worker
+        thread (no loop *set* there, since Python 3.10+), which would
+        misclassify the worker-thread case as "no loop" and skip the gate -
+        leaving sync tools ungated under ``create_react_agent``.
         """
         ws = _ws_client
         if ws is None or not ws._login_ack_received.is_set() or not ws.policy_active():  # pyright: ignore[reportPrivateUsage]
             return False
 
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            return False
-
-        if not loop.is_running():
-            # Pure-sync caller — safe to block
-            return loop.run_until_complete(_async_gate(tool_call_id))
-
-        # Check if we're on a worker thread (no running loop on THIS
-        # thread) vs the event-loop thread itself.
+        # Is THIS thread running an event loop?
         try:
             asyncio.get_running_loop()
-            # We ARE on the event-loop thread — can't block it.
-            return False
         except RuntimeError:
-            pass
+            pass  # no loop on this thread: worker thread or pure-sync caller
+        else:
+            # On the event-loop thread - can't block it. The async gate
+            # (BaseTool.ainvoke) covers direct-from-async callers.
+            return False
 
-        # Worker thread: bridge the async gate to the main loop.
+        # Worker thread: the WS loop runs elsewhere - bridge onto it and
+        # block this worker until the verdict resolves. ``_async_gate`` owns
+        # the wait policy (bounded with fail-closed in MODE_BLOCK, indefinite
+        # in MODE_HITL where execution must pause until a human acts), so we
+        # wait on the future with no timeout of our own - a finite timeout
+        # here would fail-open a HITL hold once it elapsed. Fail closed (treat
+        # as halt) if the bridge itself raises.
         main_loop = getattr(ws, "_loop", None)
-        if main_loop is None or not main_loop.is_running():
-            return False
+        if main_loop is not None and main_loop.is_running():
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    _async_gate(tool_call_id), main_loop
+                )
+                return future.result()
+            except Exception:
+                return True
 
+        # Pure-sync caller, no loop anywhere - run the gate to completion.
         try:
-            cfg = _get_config()
-            timeout = ws.block_timeout(cfg.block_timeout if cfg else 30.0)
-            future = asyncio.run_coroutine_threadsafe(
-                _async_gate(tool_call_id), main_loop
-            )
-            return future.result(timeout=timeout if timeout else 60.0)
+            return asyncio.run(_async_gate(tool_call_id))
         except Exception:
-            return False
+            return True
 
     def _blocked_response(tc_id: str) -> Any:  # noqa: ANN401
         """Return a blocked response compatible with ToolNode.
@@ -1102,7 +1110,7 @@ def _patch_base_tool() -> None:
         tool_call_id: str | None = None,
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
-        """Gate on arun — AgentExecutor calls tool.arun directly."""
+        """Gate on arun - AgentExecutor calls tool.arun directly."""
         if tool_call_id and await _async_gate(tool_call_id):
             return _blocked_response(tool_call_id)
         return await original_arun(
