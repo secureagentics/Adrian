@@ -49,7 +49,7 @@ describe("gateToolCallIds", () => {
     expect(await gateToolCallIds(["call-1"], ws)).toEqual({ action: "allow" });
   });
 
-  it("blocks on missing tool call id", async () => {
+  it("allows on missing tool call id (fail-open)", async () => {
     setConfig(config());
     const ws = {
       waitForPolicyReady: async () => true,
@@ -57,7 +57,34 @@ describe("gateToolCallIds", () => {
       blockTimeout: (seconds: number) => seconds,
       waitForToolCallVerdict: async () => verdict("evt", false),
     } as unknown as WebSocketClient;
-    expect(await gateToolCallIds(["call-1", ""], ws)).toEqual({ action: "block", reason: "missing_tool_call_id" });
+    expect(await gateToolCallIds(["call-1", ""], ws)).toEqual({ action: "allow" });
+  });
+
+  it("allows when all tool call ids are empty (fail-open)", async () => {
+    setConfig(config());
+    const ws = {
+      waitForPolicyReady: async () => true,
+      policyActive: () => true,
+      blockTimeout: (seconds: number) => seconds,
+      waitForToolCallVerdict: async () => verdict("evt", false),
+    } as unknown as WebSocketClient;
+    expect(await gateToolCallIds(["", ""], ws)).toEqual({ action: "allow" });
+  });
+
+  it("does not wait for verdicts on empty tool call ids", async () => {
+    setConfig(config());
+    const waitedFor: string[] = [];
+    const ws = {
+      waitForPolicyReady: async () => true,
+      policyActive: () => true,
+      blockTimeout: (seconds: number) => seconds,
+      waitForToolCallVerdict: async (toolCallId: string) => {
+        waitedFor.push(toolCallId);
+        return verdict(`event-${toolCallId}`, false);
+      },
+    } as unknown as WebSocketClient;
+    expect(await gateToolCallIds(["", "call-1", ""], ws)).toEqual({ action: "allow" });
+    expect(waitedFor).toEqual(["call-1"]);
   });
 
   it("blocks when a verdict requests halt", async () => {

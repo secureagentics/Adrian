@@ -29,7 +29,7 @@ source .venv/bin/activate
 pre-commit install          # wires the git hook
 ```
 
-The TypeScript SDK lives at `sdk/typescript/` as an npm workspace with two packages (`core`, `openai`). From that directory:
+The TypeScript SDK lives at `sdk/typescript/` as an npm workspace with the core package (`@secureagentics/adrian`). From that directory:
 
 ```sh
 cd sdk/typescript
@@ -38,7 +38,7 @@ npm run build
 npm test
 ```
 
-Provider packages include `@secureagentics/adrian` as a dependency and extend the `adrian` namespace — users install one package (e.g. `@secureagentics/adrian-openai openai`) and call `adrian.init()` / `adrian.openai()`. See [`sdk/typescript/README.md`](sdk/typescript/README.md) for usage examples.
+See [`sdk/typescript/README.md`](sdk/typescript/README.md) for usage examples.
 
 After `pre-commit install`, every `git commit` runs the configured hooks on
 staged files: `ruff format`, `ruff check --fix`, `basedpyright` on

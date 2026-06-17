@@ -1,188 +1,54 @@
 # Adrian TypeScript SDK
 
-Monorepo for the Adrian TypeScript SDK. Install a provider package for your framework — the core SDK is pulled in automatically.
+Monorepo for the Adrian TypeScript SDK. The core package owns the event pipeline: event pairing, PII redaction, JSONL logging, WebSocket streaming, policy verdicts, and shared capture helpers.
 
 ## Packages
 
+| Package | npm name | Install | Import |
+|---|---|---|---|
+| Core | `@secureagentics/adrian` | `npm install @secureagentics/adrian` | `import { adrian } from "@secureagentics/adrian"` |
 
-| Package | npm name                        | Install                                            | Import                                                   |
-| ------- | ------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
-| OpenAI  | `@secureagentics/adrian-openai` | `npm install @secureagentics/adrian-openai openai` | `import { adrian } from "@secureagentics/adrian-openai"` |
-
-
-Provider packages extend the `adrian` namespace with framework helpers — one install, one import.
-
-## Two-step setup
-
-1. `**adrian.init()**` — starts the event pipeline (JSONL, WebSocket, PII redaction).
-2. `**adrian.openai()**` — wraps an OpenAI client for capture.
-
-Both come from the same provider package:
+## Quick start
 
 ```ts
-import { adrian } from "@secureagentics/adrian-openai";
+import { adrian } from "@secureagentics/adrian";
 
-await adrian.init({ apiKey: process.env.ADRIAN_API_KEY });
-```
-
-When you omit `wsUrl`, the SDK connects to the Adrian backend at `ws://localhost:8080/ws` (or `ADRIAN_WS_URL` if set). Provide an `apiKey` so the WebSocket login succeeds.
-
-## WebSocket URL
-
-
-| `wsUrl` in `adrian.init()` | Result                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------------------- |
-| Omitted                    | Connect to `ADRIAN_WS_URL`, or `ws://localhost:8080/ws` if unset                        |
-| Explicit URL string        | Connect to that URL                                                                     |
-| `null`                     | Do not connect — JSONL / `onEvent` only (see [Local logging only](#local-logging-only)) |
-
-
-Explicit init options take precedence over environment variables.
-
-## Unified API
-
-The OpenAI provider package exports the Adrian namespace:
-
-
-| Export                            | Purpose                       |
-| --------------------------------- | ----------------------------- |
-| `adrian.init` / `adrian.shutdown` | Lifecycle                     |
-| `adrian.openai(...)`              | Wrap an OpenAI client         |
-| `adrian.captureTool(...)`         | Capture manual tool execution |
-
-
-Shared option types:
-
-
-| Type                 | Purpose                                             |
-| -------------------- | --------------------------------------------------- |
-| `AdrianOptions`      | Optional metadata when wrapping a client or module  |
-| `ToolCallLike`       | Shape of a tool call passed to `adrian.captureTool` |
-| `ToolCaptureOptions` | Optional metadata when capturing tool execution     |
-
-
-## Examples
-
-### OpenAI
-
-```bash
-npm install @secureagentics/adrian-openai openai
-```
-
-```ts
-import OpenAI from "openai";
-import { adrian } from "@secureagentics/adrian-openai";
-
-await adrian.init({ apiKey: process.env.ADRIAN_API_KEY });
-
-const openai = adrian.openai(new OpenAI());
-
-const response = await openai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [{ role: "user", content: "Hello" }],
-});
-
+await adrian.init({ apiKey: process.env.ADRIAN_API_KEY, wsUrl: null });
+// Wire callbacks via adrian.getHandler() or custom handlers — see below.
 await adrian.shutdown();
 ```
 
-### OpenAI tool execution
+Named exports (`init`, `shutdown`, etc.) remain available for compatibility.
 
-OpenAI returns tool call requests; your app still executes the tools. Wrap that execution with `adrian.captureTool` so Adrian can apply BLOCK/HITL policy and capture the tool result:
+## Core exports
 
-```ts
-import OpenAI from "openai";
-import { adrian, AdrianPolicyBlockedError, BLOCKED_TOOL_MESSAGE } from "@secureagentics/adrian-openai";
+| Export | Description |
+|---|---|
+| `adrian.init(options?)` | Initialise the SDK |
+| `adrian.shutdown()` | Flush handlers and tear down |
+| `adrian.getHandler()` | Access the callback handler for manual wiring |
+| `adrian.getWebSocketClient()` | Access the WebSocket client |
+| `AdrianCallbackHandler` | Event callback handler class |
+| `JSONLHandler` | Local JSONL event sink |
 
-await adrian.init({ apiKey: process.env.ADRIAN_API_KEY });
+## Environment
 
-const openai = adrian.openai(new OpenAI());
-const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-  { role: "user", content: "What is the weather in Paris?" },
-];
+Explicit `init()` options take precedence over environment variables.
 
-async function getWeather(city: string) {
-  return { city, forecast: "sunny" };
-}
+| Variable | Description |
+|---|---|
+| `ADRIAN_API_KEY` | API key used for WebSocket authentication |
+| `ADRIAN_LOG_FILE` | Local JSONL log path (default: `events.jsonl`) |
+| `ADRIAN_WS_URL` | WebSocket endpoint (default: `ws://localhost:8080/ws`) |
+| `ADRIAN_SESSION_ID` | Session identifier for grouping events |
+| `ADRIAN_BLOCK_TIMEOUT` | Seconds to wait for a BLOCK-mode verdict before fail-open (default: `30`) |
+| `ADRIAN_REPLAY_BUFFER_FRAMES` | WebSocket replay buffer size (default: `1000`) |
 
-const response = await openai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages,
-  tools: [
-    {
-      type: "function",
-      function: {
-        name: "get_weather",
-        description: "Get the current weather for a city",
-        parameters: {
-          type: "object",
-          properties: { city: { type: "string" } },
-          required: ["city"],
-        },
-      },
-    },
-  ],
-});
-
-const assistantMessage = response.choices[0]?.message;
-if (!assistantMessage) throw new Error("OpenAI response did not include an assistant message");
-
-messages.push(assistantMessage);
-
-for (const toolCall of assistantMessage.tool_calls ?? []) {
-  let toolResult: unknown;
-
-  try {
-    toolResult = await adrian.captureTool(toolCall, async () => {
-      const args = JSON.parse(toolCall.function.arguments || "{}") as { city?: string };
-      return getWeather(args.city ?? "");
-    });
-  } catch (error) {
-    if (!(error instanceof AdrianPolicyBlockedError)) throw error;
-    toolResult = BLOCKED_TOOL_MESSAGE;
-  }
-
-  messages.push({
-    role: "tool",
-    tool_call_id: toolCall.id,
-    content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult),
-  });
-}
-
-await adrian.shutdown();
-```
-
-### Responses API
+Set `wsUrl: null` in `init()` for local JSONL logging without a WebSocket connection (even when `ADRIAN_WS_URL` is set):
 
 ```ts
-const response = await openai.responses.create({
-  model: "gpt-4o-mini",
-  input: "Summarize the security considerations for this workflow.",
-});
+import { adrian } from "@secureagentics/adrian";
 
-console.log(response.output_text);
-```
-
-### Streaming
-
-Streaming calls are passed through unchanged. Adrian emits one paired event when the stream finishes or the consumer exits early:
-
-```ts
-const stream = await openai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [{ role: "user", content: "Write a short haiku." }],
-  stream: true,
-});
-
-for await (const chunk of stream) {
-  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
-}
-```
-
-### Local logging only
-
-Use `wsUrl: null` to skip the WebSocket connection and log events locally. This overrides `ADRIAN_WS_URL` even when that env var is set:
-
-```ts
 await adrian.init({
   wsUrl: null,
   logFile: "events.jsonl",
@@ -190,38 +56,105 @@ await adrian.init({
     console.log({ eventType, runId, parentRunId, eventId, data });
   },
 });
+
+await adrian.shutdown();
 ```
-
-## Environment
-
-
-| Variable                      | Description                                                                                         |
-| ----------------------------- | --------------------------------------------------------------------------------------------------- |
-| `ADRIAN_API_KEY`              | API key used for WebSocket authentication                                                           |
-| `ADRIAN_LOG_FILE`             | Local JSONL log path (default: `events.jsonl`)                                                      |
-| `ADRIAN_WS_URL`               | WebSocket endpoint when `wsUrl` is omitted from `adrian.init()` (default: `ws://localhost:8080/ws`) |
-| `ADRIAN_SESSION_ID`           | Session identifier for grouping events                                                              |
-| `ADRIAN_BLOCK_TIMEOUT`        | Seconds to wait for a BLOCK-mode verdict before fail-open (default: `30`)                           |
-| `ADRIAN_REPLAY_BUFFER_FRAMES` | WebSocket replay buffer size (default: `1000`)                                                      |
-
 
 ## Policy and BLOCK mode
 
 When connected over WebSocket and the dashboard policy is in **BLOCK** or **HITL** mode, the SDK waits for backend verdicts on tool calls proposed by an LLM turn. In **BLOCK** mode, if no verdict arrives within `blockTimeout` seconds, the SDK **fail-open** and allows execution (matching the Python SDK). Dashboard-configurable failure policy is planned for a later release.
 
+## Manual callback wiring
+
+```ts
+import { adrian } from "@secureagentics/adrian";
+
+await adrian.init();
+const handler = adrian.getHandler();
+// Pass handler into your framework's callback system.
+```
+
+For custom integrations, pair an LLM start and end with the same `runId`:
+
+```ts
+import { randomUUID } from "node:crypto";
+import { adrian } from "@secureagentics/adrian";
+
+await adrian.init({ wsUrl: null });
+
+const handler = adrian.getHandler();
+const runId = randomUUID();
+
+await handler?.handleChatModelStart(
+  { name: "custom-model" },
+  [[{ role: "user", content: "Hello" }]],
+  runId,
+);
+
+await handler?.handleLLMEnd(
+  {
+    output: "Hi there",
+    toolCalls: [],
+    usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+  },
+  runId,
+);
+
+await adrian.shutdown();
+```
+
+Manual tool events work the same way:
+
+```ts
+const toolRunId = randomUUID();
+
+await handler?.handleToolStart(
+  { name: "lookup_user" },
+  JSON.stringify({ userId: "user_123" }),
+  toolRunId,
+  undefined,
+  { tool_call_id: "call_123", metadata: { source: "custom-integration" } },
+);
+
+await handler?.handleToolEnd(JSON.stringify({ ok: true }), toolRunId);
+```
+
+## Custom event handlers
+
+Provide `handlers` when you want to replace the default JSONL/WebSocket sinks:
+
+```ts
+import { adrian, type EventHandler, type PairedEvent } from "@secureagentics/adrian";
+
+const handler: EventHandler = {
+  onPairedEvent(event: PairedEvent) {
+    console.log(event.pairType, event.eventId);
+  },
+  close() {
+    // Flush resources if needed.
+  },
+};
+
+await adrian.init({ handlers: [handler] });
+```
+
+## Subpath export
+
+`@secureagentics/adrian/capture` exposes shared LLM capture helpers used internally by provider packages.
+
 ## Development
 
-```bash
+From this directory:
+
+```sh
 npm install
 npm run build
 npm test
 ```
 
-Build or test a single package:
+Build or test the core package only:
 
-```bash
+```sh
 npm run build -w @secureagentics/adrian
-npm test -w @secureagentics/adrian-openai
+npm test -w @secureagentics/adrian
 ```
-
-Per-package npm readmes point here: [openai](./packages/openai)

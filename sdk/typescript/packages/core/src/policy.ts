@@ -4,7 +4,7 @@ import { shouldHalt, type WebSocketClient } from "./ws.js";
 /** Tool result content returned when tool execution is blocked by policy. */
 export const BLOCKED_TOOL_MESSAGE = "[BLOCKED by security policy]";
 
-export type GateToolCallsReason = "missing_tool_call_id" | "policy_halt" | "verdict_timeout";
+export type GateToolCallsReason = "policy_halt" | "verdict_timeout";
 
 export type GateToolCallsResult =
   | { action: "allow" }
@@ -36,10 +36,11 @@ export async function gateToolCallIds(
   const policyReady = await ws.waitForPolicyReady(timeoutSeconds);
   if (!policyReady || !ws.policyActive()) return { action: "allow" };
 
-  if (toolCallIds.some((id) => !id)) return { action: "block", reason: "missing_tool_call_id" };
+  const correlatableIds = toolCallIds.filter((id) => id);
+  if (correlatableIds.length === 0) return { action: "allow" };
 
   const verdictTimeout = ws.blockTimeout(timeoutSeconds);
-  const verdicts = await Promise.all(toolCallIds.map((id) => ws.waitForToolCallVerdict(id, verdictTimeout)));
+  const verdicts = await Promise.all(correlatableIds.map((id) => ws.waitForToolCallVerdict(id, verdictTimeout)));
   if (verdicts.some((verdict) => verdict !== null && shouldHalt(verdict))) return { action: "block", reason: "policy_halt" };
   return { action: "allow" };
 }

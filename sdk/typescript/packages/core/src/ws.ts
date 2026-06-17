@@ -15,11 +15,6 @@ const MAX_VERDICT_CACHE = 1024;
 type VerdictWaiter = { resolve: (verdict: Verdict | null) => void; timer?: ReturnType<typeof setTimeout> };
 type LoginAckWaiter = { resolve: (acked: boolean) => void; timer?: ReturnType<typeof setTimeout> };
 
-/** Hosted backend close code when org quota is exhausted; reconnect after 60s (matches Python SDK). */
-export function reconnectDelayMsAfterClose(closeCode: number | undefined | null): number | null {
-  return closeCode === QUOTA_EXHAUSTED_CLOSE_CODE ? QUOTA_RECONNECT_DELAY_MS : null;
-}
-
 export class WebSocketClient implements EventHandler {
   private url: string;
   private sessionId: string;
@@ -147,32 +142,22 @@ export class WebSocketClient implements EventHandler {
   private async connectLoop(): Promise<void> {
     let backoff = INITIAL_BACKOFF_MS;
     while (!this.closing) {
-      // Honour a server-requested delay (4003 quota exhausted) before the next attempt.
-      const serverDelay = this.nextReconnectDelay;
+      const initialDelay = this.nextReconnectDelay;
       this.nextReconnectDelay = null;
-      if (serverDelay !== null) await sleep(serverDelay);
+      if (initialDelay !== null) await sleep(initialDelay);
 
       try {
         await this.connectOnce();
         backoff = INITIAL_BACKOFF_MS;
         await this.waitForClose();
       } catch {
-        // Connection errors are retried with exponential backoff.
+        if (this.closing) return;
+        await sleep(backoff);
+        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+        continue;
       }
       if (this.closing) return;
-
-      // Quota backoff replaces — not stacks on — standard exponential retry.
-      if (this.nextReconnectDelay !== null) continue;
-
-      await sleep(backoff);
-      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
     }
-  }
-
-  /** @internal Applies reconnect delay from a server close code. */
-  scheduleReconnectAfterClose(closeCode: number | undefined): void {
-    const delayMs = reconnectDelayMsAfterClose(closeCode);
-    if (delayMs !== null) this.nextReconnectDelay = delayMs;
   }
 
   private async connectOnce(): Promise<void> {
@@ -187,7 +172,7 @@ export class WebSocketClient implements EventHandler {
       ws.on("message", (data) => void this.handleMessage(data));
       ws.once("error", reject);
       ws.once("close", (code) => {
-        this.scheduleReconnectAfterClose(code);
+        if (code === QUOTA_EXHAUSTED_CLOSE_CODE) this.nextReconnectDelay = QUOTA_RECONNECT_DELAY_MS;
         this.loggedIn = false;
         this.replaying = false;
         this.policy = null;
