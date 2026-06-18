@@ -23,9 +23,10 @@ type Verdict struct {
 
 // Classifier classifies a paired event. Implementations honour ctx
 // cancellation. A returned error means classification could not be
-// completed safely (LLM unreachable, malformed response, no parseable
-// M-code) and the caller must fail closed per execution mode. A nil
-// verdict with nil error is not a valid response.
+// completed (LLM unreachable, malformed response, empty choices, no
+// parseable M-code). The caller owns persistence and policy routing
+// for those operational failures. A nil verdict with nil error is not
+// a valid response.
 //
 // agentProfileID is the customer-facing agent identity bound to the
 // SDK's API key (looked up server-side at WS-login time). Pass "" to

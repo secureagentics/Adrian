@@ -19,6 +19,7 @@ type Verdict struct {
 	AgentProfileID *string
 	MADCode        string
 	Classification string
+	VerdictStatus  string
 	Reasoning      *string
 	LatencyMS      *int64
 	TokensUsed     int32
@@ -31,6 +32,7 @@ type VerdictListRow struct {
 	SessionID      string
 	MADCode        string
 	Classification string
+	VerdictStatus  string
 	LatencyMS      *int64
 	TokensUsed     int32
 	CreatedAt      time.Time
@@ -41,16 +43,21 @@ type VerdictFilters struct {
 	Since          time.Time
 	Classification string // exact match (empty = no filter)
 	MADCode        string // exact match (empty = no filter)
+	VerdictStatus  string // exact match (empty = no filter)
 }
 
 // InsertVerdict persists one classification result.
 func (s *Store) InsertVerdict(ctx context.Context, v *Verdict) error {
+	status := v.VerdictStatus
+	if status == "" {
+		status = "ok"
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO verdicts
-		   (id, event_id, session_id, agent_profile_id, mad_code, classification, reasoning, latency_ms, tokens_used)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   (id, event_id, session_id, agent_profile_id, mad_code, classification, verdict_status, reasoning, latency_ms, tokens_used)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.EventID, v.SessionID, v.AgentProfileID,
-		v.MADCode, v.Classification, v.Reasoning, v.LatencyMS, v.TokensUsed)
+		v.MADCode, v.Classification, status, v.Reasoning, v.LatencyMS, v.TokensUsed)
 	return err
 }
 
@@ -68,7 +75,7 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 
 	args = append(args, perPage, offset)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, event_id, session_id, mad_code, classification,
+		`SELECT id, event_id, session_id, mad_code, classification, verdict_status,
 		        latency_ms, tokens_used, created_at
 		 FROM verdicts
 		 WHERE `+where+`
@@ -84,7 +91,7 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 		r := &VerdictListRow{}
 		var latency sql.NullInt64
 		var createdAt string
-		if err := rows.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification,
+		if err := rows.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification, &r.VerdictStatus,
 			&latency, &r.TokensUsed, &createdAt); err != nil {
 			return nil, 0, err
 		}
@@ -101,14 +108,14 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 // or ErrNotFound.
 func (s *Store) GetVerdictByEventID(ctx context.Context, eventID string) (*VerdictListRow, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, event_id, session_id, mad_code, classification,
+		`SELECT id, event_id, session_id, mad_code, classification, verdict_status,
 		        latency_ms, tokens_used, created_at
 		 FROM verdicts WHERE event_id = ?
 		 ORDER BY created_at DESC LIMIT 1`, eventID)
 	r := &VerdictListRow{}
 	var latency sql.NullInt64
 	var createdAt string
-	if err := row.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification,
+	if err := row.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification, &r.VerdictStatus,
 		&latency, &r.TokensUsed, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -132,6 +139,10 @@ func verdictsWhere(f VerdictFilters) (string, []any) {
 	if f.MADCode != "" {
 		parts = append(parts, "mad_code = ?")
 		args = append(args, f.MADCode)
+	}
+	if f.VerdictStatus != "" {
+		parts = append(parts, "verdict_status = ?")
+		args = append(args, f.VerdictStatus)
 	}
 	return strings.Join(parts, " AND "), args
 }

@@ -16,6 +16,7 @@ type verdictResponse struct {
 	SessionID      string `json:"session_id"`
 	MADCode        string `json:"mad_code"`
 	Classification string `json:"classification"`
+	VerdictStatus  string `json:"verdict_status"`
 	LatencyMS      *int64 `json:"latency_ms,omitempty"`
 	TokensUsed     int32  `json:"tokens_used"`
 	CreatedAt      string `json:"created_at"`
@@ -38,10 +39,19 @@ func (s *Server) handleListVerdicts(w http.ResponseWriter, r *http.Request) {
 			since = t
 		}
 	}
+	if c := q.Get("classification"); c != "" && !validVerdictClassification(c) {
+		writeError(w, http.StatusBadRequest, "invalid classification")
+		return
+	}
+	if status := q.Get("verdict_status"); status != "" && !validVerdictStatus(status) {
+		writeError(w, http.StatusBadRequest, "invalid verdict_status")
+		return
+	}
 	filters := store.VerdictFilters{
 		Since:          since,
 		Classification: q.Get("classification"),
 		MADCode:        q.Get("mad_code"),
+		VerdictStatus:  q.Get("verdict_status"),
 	}
 	rows, total, err := s.store.ListVerdicts(r.Context(), filters, pg.PerPage, pg.Offset)
 	if err != nil {
@@ -67,8 +77,25 @@ func verdictRowToResponse(r *store.VerdictListRow) verdictResponse {
 		SessionID:      r.SessionID,
 		MADCode:        r.MADCode,
 		Classification: r.Classification,
+		VerdictStatus:  r.VerdictStatus,
 		LatencyMS:      r.LatencyMS,
 		TokensUsed:     r.TokensUsed,
 		CreatedAt:      r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
+}
+
+func validVerdictClassification(c string) bool {
+	switch c {
+	case "benign", "notify", "block", "error":
+		return true
+	}
+	return false
+}
+
+func validVerdictStatus(s string) bool {
+	switch s {
+	case "ok", "error":
+		return true
+	}
+	return false
 }

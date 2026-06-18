@@ -32,8 +32,9 @@ Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security moni
   <a href="https://www.linkedin.com/company/secure-agentics">LinkedIn</a>
 </p>
 
-https://github.com/user-attachments/assets/96974b9d-4862-41ac-a499-ef5cfe76e16a
+https://github.com/user-attachments/assets/ba50e6e4-fe3e-47b2-aa69-2902e1ef2924
 
+##### New to Adrian? Check out the [Launch Video](https://www.youtube.com/watch?v=NkEISlRhyFs)
 ## Quickstart
 
 > **Want the stupidly simple, 60-second hands-off install?** Feed your coding agent (Claude, Codex, Cursor, etc.) this file: [GET_STARTED_AI_GUIDE.md](https://github.com/secureagentics/Adrian/blob/main/GET_STARTED_AI_GUIDE.md). It will walk you through the installation process - [video guide here](https://youtu.be/7vYjeGxY8to). Always review instructions manually

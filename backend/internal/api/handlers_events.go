@@ -43,6 +43,7 @@ type timelineVerdict struct {
 	ID             string `json:"id"`
 	MADCode        string `json:"mad_code"`
 	Classification string `json:"classification"`
+	VerdictStatus  string `json:"verdict_status"`
 }
 
 type timelineEntry struct {
@@ -147,6 +148,7 @@ func (s *Server) handleSessionTimeline(w http.ResponseWriter, r *http.Request) {
 				ID:             row.VerdictID,
 				MADCode:        row.MADCode,
 				Classification: row.Classification,
+				VerdictStatus:  row.VerdictStatus,
 			}
 		}
 		resp.Entries = append(resp.Entries, entry)

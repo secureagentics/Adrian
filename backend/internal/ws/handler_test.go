@@ -159,6 +159,101 @@ func TestRoundTrip(t *testing.T) {
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
+// Phase 4 anchor for issue #46: a classifier transport / HTTP failure
+// is persisted + pushed as an ERROR verdict with no MAD code. The
+// mode-specific fail-closed policy matrix is layered on in Phase 5.
+func TestClassifierFailurePersistsAndPublishesErrorVerdict(t *testing.T) {
+	db := openInMemoryDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+
+	st := store.New(db)
+	plaintextKey := "adr_local_test_key_classifier_failure"
+	keyHash := sha256Hex(plaintextKey)
+	insertAPIKey(t, db, keyHash)
+	if _, err := db.Exec(`UPDATE policies SET mode = 'block' WHERE id = 1`); err != nil {
+		t.Fatalf("set mode=block: %v", err)
+	}
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "classifier exploded", http.StatusInternalServerError)
+	}))
+	t.Cleanup(llm.Close)
+	classifier := engine.NewHTTPClient(llm.URL, "test-key", "test-model", nil, nil)
+
+	mux := http.NewServeMux()
+	mux.Handle("/ws", ws.AuthMiddleware(st)(ws.NewHandler(st, classifier, ws.NewHub(), nil, nil)))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	header := http.Header{"Authorization": {"Bearer " + plaintextKey}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := writeProto(conn, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_Login{Login: &bpb.SessionLogin{
+			SessionId: "classifier-failure-sess", SchemaVersion: 2,
+		}},
+	}); err != nil {
+		t.Fatalf("send login: %v", err)
+	}
+	if _, err := readServerFrame(conn); err != nil {
+		t.Fatalf("read login_ack: %v", err)
+	}
+
+	eventID := uuid.NewString()
+	if err := writeProto(conn, &bpb.ClientFrame{
+		Frame: &bpb.ClientFrame_PairedBatch{PairedBatch: &bpb.PairedEventBatch{
+			Events: []*bpb.PairedEvent{{
+				EventId: eventID, SessionId: "classifier-failure-sess",
+				RunId:    "run-classifier-failure",
+				PairType: bpb.PairType_PAIR_TYPE_TOOL,
+				Agent:    &bpb.AgentContext{AgentId: "failure-agent"},
+				Data: &bpb.PairedEvent_Tool{Tool: &bpb.ToolPairData{
+					ToolName: "noop", ToolCallId: "tc-classifier-failure", Input: "{}", Output: "ok",
+				}},
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("send paired_batch: %v", err)
+	}
+
+	frame, err := readServerFrame(conn)
+	if err != nil {
+		t.Fatalf("read verdict: %v", err)
+	}
+	verdict := frame.GetVerdict()
+	if verdict == nil {
+		t.Fatalf("expected Verdict, got %T", frame.Frame)
+	}
+	if verdict.MadCode != "" {
+		t.Fatalf("pushed mad_code = %q, want empty on classifier error", verdict.MadCode)
+	}
+	if verdict.Status != bpb.VerdictStatus_VERDICT_STATUS_ERROR {
+		t.Fatalf("pushed status = %v, want ERROR", verdict.Status)
+	}
+
+	var madCode, classification, verdictStatus, reasoning string
+	if err := db.QueryRow(
+		`SELECT mad_code, classification, verdict_status, reasoning FROM verdicts WHERE event_id = ?`,
+		eventID,
+	).Scan(&madCode, &classification, &verdictStatus, &reasoning); err != nil {
+		t.Fatalf("query verdict: %v", err)
+	}
+	if madCode != "" || classification != "error" || verdictStatus != "error" {
+		t.Fatalf("stored verdict = (%q, %q, %q), want ('', error, error)",
+			madCode, classification, verdictStatus)
+	}
+	if !strings.Contains(reasoning, "classifier failure") ||
+		!strings.Contains(reasoning, "post:") ||
+		!strings.Contains(reasoning, "status 500") {
+		t.Fatalf("stored reasoning = %q, want classifier failure with post/status 500", reasoning)
+	}
+}
+
 func TestDuplicateEventRetryKeepsWSOpen(t *testing.T) {
 	db := openInMemoryDB(t)
 	t.Cleanup(func() { _ = db.Close() })
@@ -660,6 +755,7 @@ CREATE TABLE policies (
     policy_m2  INTEGER NOT NULL DEFAULT 0,
     policy_m3  INTEGER NOT NULL DEFAULT 1,
     policy_m4  INTEGER NOT NULL DEFAULT 1,
+    fail_closed_on_classifier_error INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 INSERT INTO policies (id) VALUES (1);
@@ -681,6 +777,7 @@ CREATE TABLE verdicts (
     agent_profile_id TEXT,
     mad_code         TEXT NOT NULL,
     classification   TEXT NOT NULL,
+    verdict_status   TEXT NOT NULL DEFAULT 'ok',
     reasoning        TEXT,
     latency_ms       INTEGER,
     tokens_used      INTEGER NOT NULL DEFAULT 0,

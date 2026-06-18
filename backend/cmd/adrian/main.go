@@ -3,8 +3,8 @@
 
 // Adrian backend entrypoint.
 //
-// Loads config, opens the SQLite database (running idempotent
-// migrations), constructs the API server with the LLM-backed
+// Loads config, opens the SQLite database (running pending
+// ledger-tracked migrations), constructs the API server with the LLM-backed
 // classifier, and listens on ADRIAN_BACKEND_PORT until SIGTERM.
 package main
 

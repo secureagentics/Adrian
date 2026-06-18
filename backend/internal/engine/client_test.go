@@ -89,7 +89,7 @@ func TestMADCodeToClassification(t *testing.T) {
 		"M3.b": "block",
 		"M4":   "block",
 		"M4.e": "block",
-		"":     "benign",
+		"":     "error",
 	}
 	for code, want := range cases {
 		if got := madCodeToClassification(code); got != want {
@@ -232,11 +232,10 @@ func TestHTTPClientClassifyHappy(t *testing.T) {
 	}
 }
 
-// TestHTTPClientClassifyFailsOpenOn5xx asserts that an upstream HTTP
-// error (e.g. 500) returns a synthetic M0 / benign verdict rather than
-// halting the agent. Adrian's posture is fail-open across all
-// classifier failures.
-func TestHTTPClientClassifyFailsOpenOn5xx(t *testing.T) {
+// TestHTTPClientClassifyErrorsOn5xx asserts that an upstream HTTP
+// error (e.g. 500) is returned to the WS ingest layer so it can
+// persist an ERROR verdict and apply policy.
+func TestHTTPClientClassifyErrorsOn5xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
@@ -250,28 +249,21 @@ func TestHTTPClientClassifyFailsOpenOn5xx(t *testing.T) {
 			Tool: &pb.ToolPairData{ToolName: "noop"},
 		},
 	}, "")
-	if err != nil {
-		t.Fatalf("Classify on 5xx must NOT error (fail-open path); got %v", err)
+	if err == nil {
+		t.Fatal("Classify on 5xx unexpectedly succeeded")
 	}
-	if v == nil {
-		t.Fatal("verdict should not be nil on the fail-open path")
+	if v != nil {
+		t.Fatalf("verdict = %+v, want nil on classifier error", v)
 	}
-	if v.MADCode != "M0" {
-		t.Errorf("fail-open mad_code = %q, want M0", v.MADCode)
-	}
-	if v.Classification != "benign" {
-		t.Errorf("fail-open classification = %q, want benign", v.Classification)
-	}
-	if !strings.Contains(v.Reasoning, "classifier failure") || !strings.Contains(v.Reasoning, "status 500") {
-		t.Errorf("Reasoning should reference upstream status; got %q", v.Reasoning)
+	if !strings.Contains(err.Error(), "post:") || !strings.Contains(err.Error(), "status 500") {
+		t.Errorf("error should reference upstream status; got %v", err)
 	}
 }
 
-// TestHTTPClientClassifyFailsOpenOnConnRefused asserts the
-// transport-failure path (server unreachable / connection refused)
-// also fails open with a synthetic M0 / benign verdict. Same posture
-// as 5xx: classifier outages on our side must not halt the agent.
-func TestHTTPClientClassifyFailsOpenOnConnRefused(t *testing.T) {
+// TestHTTPClientClassifyErrorsOnConnRefused asserts the transport
+// failure path (server unreachable / connection refused) returns an
+// error rather than a synthetic benign verdict.
+func TestHTTPClientClassifyErrorsOnConnRefused(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Will not be hit; we close the server before calling Classify.
 		w.WriteHeader(http.StatusOK)
@@ -287,21 +279,21 @@ func TestHTTPClientClassifyFailsOpenOnConnRefused(t *testing.T) {
 			Tool: &pb.ToolPairData{ToolName: "noop"},
 		},
 	}, "")
-	if err != nil {
-		t.Fatalf("Classify on connection-refused must NOT error (fail-open path); got %v", err)
+	if err == nil {
+		t.Fatal("Classify on connection-refused unexpectedly succeeded")
 	}
-	if v == nil || v.MADCode != "M0" || v.Classification != "benign" {
-		t.Errorf("fail-open verdict = %+v, want M0/benign", v)
+	if v != nil {
+		t.Fatalf("verdict = %+v, want nil on classifier error", v)
 	}
-	if !strings.Contains(v.Reasoning, "classifier failure") {
-		t.Errorf("Reasoning should mention classifier failure; got %q", v.Reasoning)
+	if !strings.Contains(err.Error(), "post:") {
+		t.Errorf("error should identify post failure; got %v", err)
 	}
 }
 
-// TestHTTPClientClassifyFailsOpenOnUnparseable asserts the
+// TestHTTPClientClassifyErrorsOnUnparseable asserts the
 // 2xx-with-garbled-body path: upstream answered, body has no
-// recognisable M-code, engine returns synthetic M0 / benign.
-func TestHTTPClientClassifyFailsOpenOnUnparseable(t *testing.T) {
+// recognisable M-code, so engine returns an error.
+func TestHTTPClientClassifyErrorsOnUnparseable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"sorry, no idea"}}]}`))
 	}))
@@ -313,27 +305,44 @@ func TestHTTPClientClassifyFailsOpenOnUnparseable(t *testing.T) {
 		PairType: pb.PairType_PAIR_TYPE_TOOL,
 		Data:     &pb.PairedEvent_Tool{Tool: &pb.ToolPairData{ToolName: "noop"}},
 	}, "")
-	if err != nil {
-		t.Fatalf("Classify on unparseable body must NOT error (fail-open path); got %v", err)
+	if err == nil {
+		t.Fatal("Classify on unparseable body unexpectedly succeeded")
 	}
-	if v == nil {
-		t.Fatal("verdict should not be nil on the fail-open path")
+	if v != nil {
+		t.Fatalf("verdict = %+v, want nil on classifier error", v)
 	}
-	if v.MADCode != "M0" {
-		t.Errorf("fail-open mad_code = %q, want M0", v.MADCode)
-	}
-	if v.Classification != "benign" {
-		t.Errorf("fail-open classification = %q, want benign", v.Classification)
-	}
-	if !strings.Contains(v.Reasoning, "classifier failure") || !strings.Contains(v.Reasoning, "no MAD code") {
-		t.Errorf("Reasoning should explain the parse miss; got %q", v.Reasoning)
+	if !strings.Contains(err.Error(), "no MAD code") {
+		t.Errorf("error should explain the parse miss; got %v", err)
 	}
 }
 
-// TestHTTPClientClassifyFailsOpenOnEmptyChoices is the second
-// branch into failOpenUnparseable: 2xx + valid JSON envelope, but
-// the choices array is empty. Same fail-open posture.
-func TestHTTPClientClassifyFailsOpenOnEmptyChoices(t *testing.T) {
+func TestHTTPClientClassifyErrorsOnMalformedJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "test-key", "test-model", nil, nil)
+	v, err := c.Classify(context.Background(), &pb.PairedEvent{
+		EventId:  "ev-malformed",
+		PairType: pb.PairType_PAIR_TYPE_TOOL,
+		Data:     &pb.PairedEvent_Tool{Tool: &pb.ToolPairData{ToolName: "noop"}},
+	}, "")
+	if err == nil {
+		t.Fatal("Classify on malformed JSON unexpectedly succeeded")
+	}
+	if v != nil {
+		t.Fatalf("verdict = %+v, want nil on classifier error", v)
+	}
+	if !strings.Contains(err.Error(), "unmarshal:") {
+		t.Errorf("error should explain malformed JSON; got %v", err)
+	}
+}
+
+// TestHTTPClientClassifyErrorsOnEmptyChoices is the second
+// unparseable-response branch: 2xx + valid JSON envelope, but the
+// choices array is empty.
+func TestHTTPClientClassifyErrorsOnEmptyChoices(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"choices":[]}`))
 	}))
@@ -345,11 +354,14 @@ func TestHTTPClientClassifyFailsOpenOnEmptyChoices(t *testing.T) {
 		PairType: pb.PairType_PAIR_TYPE_TOOL,
 		Data:     &pb.PairedEvent_Tool{Tool: &pb.ToolPairData{ToolName: "noop"}},
 	}, "")
-	if err != nil {
-		t.Fatalf("Classify on empty-choices must NOT error; got %v", err)
+	if err == nil {
+		t.Fatal("Classify on empty-choices unexpectedly succeeded")
 	}
-	if v == nil || v.MADCode != "M0" {
-		t.Errorf("fail-open verdict = %+v, want M0/benign", v)
+	if v != nil {
+		t.Fatalf("verdict = %+v, want nil on classifier error", v)
+	}
+	if !strings.Contains(err.Error(), "no choices") {
+		t.Errorf("error should explain empty choices; got %v", err)
 	}
 }
 
@@ -415,6 +427,48 @@ func TestHTTPClientWindowFeedsHistory(t *testing.T) {
 	if historyAssistant.Role != "assistant" || historyAssistant.Content != "M3.b" {
 		t.Errorf("history assistant should replay the prior M-code; got %q / %q",
 			historyAssistant.Role, historyAssistant.Content)
+	}
+}
+
+func TestHTTPClientWindowSkipsFailedTurns(t *testing.T) {
+	var captured []requestBody
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req requestBody
+		_ = json.Unmarshal(body, &req)
+		captured = append(captured, req)
+		if len(captured) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"M0"}}]}`))
+	}))
+	defer srv.Close()
+
+	window := NewSlidingWindow(WindowOpts{Size: 16, TTL: time.Hour})
+	c := NewHTTPClient(srv.URL, "test-key", "test-model", window, nil)
+	event := &pb.PairedEvent{
+		EventId:      "ev-window-fail",
+		SessionId:    "sess-window-fail",
+		InvocationId: "inv-window-fail",
+		PairType:     pb.PairType_PAIR_TYPE_TOOL,
+		Agent:        &pb.AgentContext{AgentId: "agent-window-fail"},
+		Data:         &pb.PairedEvent_Tool{Tool: &pb.ToolPairData{ToolName: "first_tool"}},
+	}
+
+	if _, err := c.Classify(context.Background(), event, ""); err == nil {
+		t.Fatal("first classify unexpectedly succeeded")
+	}
+	event.EventId = "ev-window-success"
+	if _, err := c.Classify(context.Background(), event, ""); err != nil {
+		t.Fatalf("second classify: %v", err)
+	}
+
+	if len(captured) != 2 {
+		t.Fatalf("captured %d requests, want 2", len(captured))
+	}
+	if got := len(captured[1].Messages); got != 4 {
+		t.Fatalf("second call messages = %d, want 4 (failed turn not pushed to history)", got)
 	}
 }
 

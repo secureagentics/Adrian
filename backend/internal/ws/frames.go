@@ -31,11 +31,12 @@ const (
 // can build HITL-resolution Verdict frames carrying the same shape.
 func PolicySnapshot(p *store.Policy) *pb.PolicySnapshot {
 	return &pb.PolicySnapshot{
-		Mode:     modeFromString(p.Mode),
-		PolicyM0: p.PolicyM0,
-		PolicyM2: p.PolicyM2,
-		PolicyM3: p.PolicyM3,
-		PolicyM4: p.PolicyM4,
+		Mode:                        modeFromString(p.Mode),
+		PolicyM0:                    p.PolicyM0,
+		PolicyM2:                    p.PolicyM2,
+		PolicyM3:                    p.PolicyM3,
+		PolicyM4:                    p.PolicyM4,
+		FailClosedOnClassifierError: p.FailClosedOnClassifierError,
 	}
 }
 

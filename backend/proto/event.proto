@@ -201,6 +201,16 @@ enum Mode {
   MODE_BLOCK = 3;
 }
 
+// VerdictStatus says whether a Verdict came from a completed classifier
+// decision or represents a classifier failure. ERROR verdicts carry no
+// classifier-produced MAD code; policy decides whether they fail open
+// or fail closed.
+enum VerdictStatus {
+  VERDICT_STATUS_UNSPECIFIED = 0;
+  VERDICT_STATUS_OK = 1;
+  VERDICT_STATUS_ERROR = 2;
+}
+
 // PolicySnapshot is the org's effective execution-mode policy at the moment
 // a verdict was decided. Attached by the server to every Verdict it sends
 // so the SDK can apply user-configured behaviour (halt vs continue,
@@ -208,12 +218,16 @@ enum Mode {
 //
 // Per-MAD-code booleans say whether the active mode's behaviour fires on
 // that code. False means "treat this code as silent regardless of mode".
+// fail_closed_on_classifier_error controls ERROR verdicts and BLOCK-mode
+// SDK verdict timeouts. The default false value preserves fail-open
+// availability when talking to older backends.
 message PolicySnapshot {
   Mode mode = 1;
   bool policy_m0 = 2;
   bool policy_m2 = 3;
   bool policy_m3 = 4;
   bool policy_m4 = 5;
+  bool fail_closed_on_classifier_error = 6;
 }
 
 // HitlResponse rides on a Verdict that has been resolved through the
@@ -262,7 +276,10 @@ message Verdict {
   // off the wire. Reserved so the slot can't be reused.
   reserved 3;
   reserved "classification";
-  // MAD code the classifier returned (e.g. "M0", "M2_C", "M4_a").  Empty string for benign.
+  // MAD code the classifier returned (e.g. "M0", "M2_C", "M4_a").
+  // Empty string means no MAD code was produced, such as for a
+  // VerdictStatus.ERROR classifier failure. Benign classifier success
+  // is represented by status OK with mad_code "M0".
   string mad_code = 4;
   // Field 5 previously held `bool escalate`, a verdict-level flag the
   // engine derived from the classifier reasoning string. Removed because
@@ -280,4 +297,8 @@ message Verdict {
   // resolution (approve or reject from the dashboard). Absent on auto-
   // classified verdicts and on out-of-scope verdicts forwarded immediately.
   HitlResponse hitl = 7;
+  // Status of the classifier result. OK means mad_code carries a normal
+  // classifier decision. ERROR means classification did not complete and
+  // mad_code is empty; fail-open/fail-closed behaviour comes from policy.
+  VerdictStatus status = 8;
 }
