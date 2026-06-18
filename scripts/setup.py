@@ -141,7 +141,9 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str
         if NO_TRANSACTION_MARKER in sql:
             try:
                 conn.executescript(sql)
-                conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (path.name,))
+                conn.execute(
+                    "INSERT INTO schema_migrations (name) VALUES (?)", (path.name,)
+                )
                 conn.commit()
             except sqlite3.Error:
                 conn.rollback()
@@ -150,7 +152,9 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str
         else:
             try:
                 conn.executescript("BEGIN;\n" + sql + "\n")
-                conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (path.name,))
+                conn.execute(
+                    "INSERT INTO schema_migrations (name) VALUES (?)", (path.name,)
+                )
                 conn.commit()
             except sqlite3.Error:
                 conn.rollback()
@@ -173,12 +177,16 @@ def reconcile_migration_002(conn: sqlite3.Connection, name: str) -> tuple[bool, 
     if name != "002_verdict_status_policy.sql":
         return False, False
 
-    has_policy_column = table_has_column(conn, "policies", "fail_closed_on_classifier_error")
+    has_policy_column = table_has_column(
+        conn, "policies", "fail_closed_on_classifier_error"
+    )
     has_verdict_status = table_has_column(conn, "verdicts", "verdict_status")
     allows_error_classification = table_sql_contains(conn, "verdicts", "'error'")
 
     if has_policy_column and has_verdict_status and allows_error_classification:
-        conn.execute("INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (name,))
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (name,)
+        )
         conn.commit()
         return True, False
 
@@ -751,7 +759,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_model.add_argument("--ctx-size", type=int, default=None)
     p_model.set_defaults(func=cmd_set_model)
 
-    p_migrate = sub.add_parser("apply-migrations", help="apply pending schema migrations")
+    p_migrate = sub.add_parser(
+        "apply-migrations", help="apply pending schema migrations"
+    )
     p_migrate.set_defaults(func=cmd_apply_migrations)
 
     return parser
