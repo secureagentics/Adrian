@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as adrianCore from "@secureagentics/adrian";
-import { AdrianPolicyBlockedError, Mode, type EventData, type Verdict, type WebSocketClient } from "@secureagentics/adrian";
+import { BLOCKED_TOOL_MESSAGE, Mode, type EventData, type Verdict, type WebSocketClient } from "@secureagentics/adrian";
 import { adrian } from "../src/index.js";
 
 function mockOpenAIStream<T>(chunks: T[]) {
@@ -348,14 +348,15 @@ describe("OpenAI instrumentation", () => {
     vi.spyOn(adrianCore, "getWebSocketClient").mockReturnValue(mockWs(true));
 
     let executed = false;
-    await expect(adrian.captureTool({
+    const result = await adrian.captureTool({
       id: "call-weather",
       function: { name: "get_weather", arguments: "{}" },
     }, async () => {
       executed = true;
       return { ok: true };
-    })).rejects.toBeInstanceOf(AdrianPolicyBlockedError);
+    });
 
+    expect(result).toBe(BLOCKED_TOOL_MESSAGE);
     expect(executed).toBe(false);
   });
 
@@ -439,6 +440,60 @@ describe("OpenAI instrumentation", () => {
         model: "gpt-4o-mini",
         output: "[ERROR] Error: rate limited",
         error: { name: "Error", message: "rate limited" },
+      },
+    });
+  });
+
+  it("captures streaming OpenAI request errors as LLM events", async () => {
+    const events: Array<{ type: string; data: EventData }> = [];
+    const client = adrian.openai({
+      chat: {
+        completions: {
+          create: async (_body: Record<string, unknown>) => {
+            throw new Error("rate limited");
+          },
+        },
+      },
+      responses: {
+        create: async (_body: Record<string, unknown>) => {
+          throw new Error("responses rate limited");
+        },
+      },
+    });
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (type, data) => {
+      events.push({ type, data });
+    } });
+
+    await expect(client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+    })).rejects.toThrow("rate limited");
+
+    await expect(client.responses.create({
+      model: "gpt-4.1",
+      input: "hi",
+      stream: true,
+    })).rejects.toThrow("responses rate limited");
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      type: "llm",
+      data: {
+        kind: "llm",
+        model: "gpt-4o-mini",
+        output: "[ERROR] Error: rate limited",
+        error: { name: "Error", message: "rate limited" },
+      },
+    });
+    expect(events[1]).toMatchObject({
+      type: "llm",
+      data: {
+        kind: "llm",
+        model: "gpt-4.1",
+        output: "[ERROR] Error: responses rate limited",
+        error: { name: "Error", message: "responses rate limited" },
       },
     });
   });

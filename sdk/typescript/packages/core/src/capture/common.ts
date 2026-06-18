@@ -1,19 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { currentConfig } from "../config.js";
 import type { AdrianCallbackHandler } from "../handler.js";
 import { runWithInvocationId } from "../context.js";
-import { assertToolCallsAllowed } from "../policy.js";
-import { getWebSocketClient } from "../registry.js";
 import type { CallbackMetadata, ChatMessage, LlmEndData, TokenUsage, ToolArgs, ToolCallRecord } from "../types.js";
 
-/** Gate tool calls after the paired LLM event has been emitted (maps tool-call ids on the WS client). */
-export async function gateLlmEndData(end: LlmEndData): Promise<void> {
-  await assertToolCallsAllowed(
-    end.toolCalls.map((call) => call.id),
-    getWebSocketClient(),
-    currentConfig()?.blockTimeout ?? 30,
-  );
-}
+/** Hook after LLM end; policy gating happens at tool execution time (see captureTool). */
+export async function gateLlmEndData(_end: LlmEndData): Promise<void> {}
 
 export interface LlmCaptureInput {
   model: string;
@@ -46,6 +37,27 @@ export async function captureLlmCall<T>(
       throw error;
     }
   });
+}
+
+/** Wrap an LLM call that may fail before returning (e.g. streaming create). Records start+error, then re-throws. */
+export async function captureLlmExecute<T>(
+  getHandler: () => AdrianCallbackHandler | null,
+  input: LlmCaptureInput,
+  execute: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    const handler = getHandler();
+    if (handler) {
+      const runId = randomUUID();
+      await runWithInvocationId(randomUUID(), async () => {
+        await handler.handleChatModelStart({ name: input.model }, [input.messages], runId, input.parentRunId, { metadata: input.metadata });
+        await handler.handleLLMError(error, runId);
+      });
+    }
+    throw error;
+  }
 }
 
 export function captureLlmAsyncIterable<T>(

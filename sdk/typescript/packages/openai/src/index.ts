@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
-  assertToolCallsAllowed,
+  BLOCKED_TOOL_MESSAGE,
   currentConfig,
+  gateToolCallIds,
   getHandler,
   getWebSocketClient,
   init,
@@ -14,6 +15,7 @@ import type { CallbackMetadata, EventData, InitOptions, LlmEndData, ToolCallReco
 import {
   captureLlmAsyncIterable,
   captureLlmCall,
+  captureLlmExecute,
   gateLlmEndData,
   emptyLlmEnd,
   messagesFromPromptLike,
@@ -58,13 +60,15 @@ export async function captureTool<T>(
   const input = String(toolCall.function?.arguments ?? toolCall.arguments ?? "");
   const metadata = integrationMetadata(options.metadata, "openai.tool_call");
 
-  // Gate before running the handler so BLOCK/HITL policy can halt execution.
-  // Uses the tool_call_id from the LLM turn so the backend verdict correlates.
-  await assertToolCallsAllowed(toolCallId ? [toolCallId] : [], getWebSocketClient(), currentConfig()?.blockTimeout ?? 30);
+  const gate = await gateToolCallIds(toolCallId ? [toolCallId] : [], getWebSocketClient(), currentConfig()?.blockTimeout ?? 30);
 
   // runWithInvocationId scopes tool start/end to the same invocation tree as LLM events.
   return runWithInvocationId(randomUUID(), async () => {
     await handler.handleToolStart({ name: toolName }, input, runId, options.parentRunId, { metadata, tool_call_id: toolCallId });
+    if (gate.action === "block") {
+      await handler.handleToolEnd(BLOCKED_TOOL_MESSAGE, runId);
+      return BLOCKED_TOOL_MESSAGE as T;
+    }
     try {
       const result = await execute();
       await handler.handleToolEnd(result, runId);
@@ -111,13 +115,15 @@ function instrumentChatCompletions(completions: unknown, options: AdrianOptions)
       const value = Reflect.get(target, prop, receiver);
       if (prop !== "create" || typeof value !== "function") return value;
       return async function adrianOpenAIChatCreate(this: unknown, body: Record<string, unknown> = {}, ...rest: unknown[]) {
-        const model = String(body.model ?? "openai");
+        const model = String(body.model || "openai");
         const metadata = integrationMetadata(options.metadata, "openai.chat.completions");
         const messages = normalizeMessages(body.messages);
         if (body.stream === true) {
-          const result = await Promise.resolve(value.call(target, body, ...rest));
-          if (isAsyncIterable(result)) return captureChatCompletionStream(model, messages, metadata, result);
-          return result;
+          return captureLlmExecute(getHandler, { model, messages, metadata }, async () => {
+            const result = await value.call(target, body, ...rest);
+            if (isAsyncIterable(result)) return captureChatCompletionStream(model, messages, metadata, result);
+            return result;
+          });
         }
         // Non-stream path: core capture helper pairs handleChatModelStart/End around the call.
         return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractChatCompletion, gateLlmEndData);
@@ -144,9 +150,12 @@ function instrumentResponses(responses: unknown, options: AdrianOptions): unknow
           instructions: body.instructions,
         });
         if (body.stream === true) {
-          const result = await Promise.resolve(value.call(target, body, ...rest));
-          if (isAsyncIterable(result)) return captureResponseStream(model, messages, metadata, result);
-          return result;
+          return captureLlmExecute(getHandler, { model, messages, metadata }, async () => {
+            const result = await Promise.resolve(value.call(target, body, ...rest));
+
+            if (isAsyncIterable(result)) return captureResponseStream(model, messages, metadata, result);
+            return result;
+          });
         }
         return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(value.call(target, body, ...rest)), extractResponse, gateLlmEndData);
       };
@@ -161,23 +170,20 @@ function captureChatCompletionStream(model: string, messages: ReturnType<typeof 
   // OpenAI streams tool calls by index; merge partial deltas before emit.
   const toolCallParts = new Map<number, { id: string; name: string; args: string }>();
   return captureLlmAsyncIterable(getHandler, { model, messages, metadata }, stream, (chunk) => {
-    const obj = chunk && typeof chunk === "object" ? chunk as Record<string, unknown> : {};
+    const obj = chunk as Record<string, unknown>;
     // Usage arrives on the final chunk when stream_options.include_usage is set.
     usage = normalizeUsage(obj.usage) ?? usage;
-    const choices = Array.isArray(obj.choices) ? obj.choices : [];
-    for (const choice of choices) {
-      const delta = (choice as Record<string, unknown>).delta as Record<string, unknown> | undefined;
+    for (const choice of (obj.choices as any[] ?? [])) {
+      const delta = choice.delta;
       output += stringifyContent(delta?.content);
-      const calls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : [];
-      for (const rawCall of calls) {
-        const call = rawCall as Record<string, unknown>;
-        const index = typeof call.index === "number" ? call.index : toolCallParts.size;
-        const fn = call.function as Record<string, unknown> | undefined;
-        const current = toolCallParts.get(index) ?? { id: "", name: "", args: "" };
-        toolCallParts.set(index, {
-          id: typeof call.id === "string" ? call.id : current.id,
-          name: typeof fn?.name === "string" ? fn.name : current.name,
-          args: current.args + (typeof fn?.arguments === "string" ? fn.arguments : ""),
+
+      for (const call of (delta?.tool_calls ?? [])) {
+        const fn = call.function;
+        const current = toolCallParts.get(call.index) ?? { id: "", name: "", args: "" };
+        toolCallParts.set(call.index, {
+          id: call.id ?? current.id,
+          name: fn?.name ?? current.name,
+          args: current.args + (fn?.arguments ?? ""),
         });
       }
     }
@@ -188,41 +194,73 @@ function captureChatCompletionStream(model: string, messages: ReturnType<typeof 
 function captureResponseStream(model: string, messages: ReturnType<typeof normalizeMessages>, metadata: CallbackMetadata | null, stream: AsyncIterable<unknown>): AsyncIterable<unknown> {
   let output = "";
   let usage: LlmEndData["usage"] = null;
+
   const toolCallParts = new Map<string, { id: string; name: string; args: string }>();
-  return captureLlmAsyncIterable(getHandler, { model, messages, metadata }, stream, (chunk) => {
-    const obj = chunk && typeof chunk === "object" ? chunk as Record<string, unknown> : {};
-    usage = normalizeUsage(obj.usage) ?? usage;
-    if (obj.type === "response.output_text.delta" && typeof obj.delta === "string") output += obj.delta;
-    if (typeof obj.output_text === "string") output += obj.output_text;
-    collectResponseStreamToolCall(obj, toolCallParts);
-  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage), gateLlmEndData);
+
+  return captureLlmAsyncIterable(
+    getHandler,
+    { model, messages, metadata },
+    stream,
+    (chunk) => {
+      const obj = chunk as Record<string, unknown>;
+      switch (obj.type) {
+        case "response.output_text.delta":
+          output += obj.delta;
+          break;
+
+        case "response.completed":
+          usage = normalizeUsage(obj.usage) ?? usage;
+          break;
+      }
+      collectResponseStreamToolCall(obj, toolCallParts);
+    },
+    () =>
+      emptyLlmEnd(
+        output,
+        [...toolCallParts.values()].map((call) => ({
+          id: call.id,
+          name: call.name,
+          args: parseToolArgs(call.args),
+        })),
+        usage,
+      ),
+    gateLlmEndData,
+  );
 }
 
 /** Map a completed Chat Completions response object into Adrian LLM end data. */
 function extractChatCompletion(result: unknown): LlmEndData {
   if (isAsyncIterable(result)) return emptyLlmEnd();
-  const obj = result && typeof result === "object" ? result as Record<string, unknown> : {};
-  const choices = Array.isArray(obj.choices) ? obj.choices : [];
-  const first = choices[0] && typeof choices[0] === "object" ? choices[0] as Record<string, unknown> : {};
-  const message = first.message && typeof first.message === "object" ? first.message as Record<string, unknown> : {};
-  const toolCalls = normalizeOpenAIToolCalls(message.tool_calls);
-  return emptyLlmEnd(stringifyContent(message.content), toolCalls, normalizeUsage(obj.usage));
+  const obj = result as Record<string, unknown>;
+  const message = (obj.choices as Record<string, unknown>[])[0]
+    ?.message as Record<string, unknown> | undefined;
+
+  return emptyLlmEnd(
+    stringifyContent(message?.content),
+    normalizeOpenAIToolCalls(message?.tool_calls),
+    normalizeUsage(obj.usage),
+  );
 }
 
 /** Map a completed Responses API object into Adrian LLM end data. */
 function extractResponse(result: unknown): LlmEndData {
   if (isAsyncIterable(result)) return emptyLlmEnd();
-  const obj = result && typeof result === "object" ? result as Record<string, unknown> : {};
-  return emptyLlmEnd(typeof obj.output_text === "string" ? obj.output_text : stringifyContent(obj.output), normalizeResponseToolCalls(obj.output), normalizeUsage(obj.usage));
+  const obj = result as Record<string, unknown>;
+
+  return emptyLlmEnd(
+    typeof obj.output_text === "string" ? obj.output_text : stringifyContent(obj.output),
+    normalizeResponseToolCalls(obj.output),
+    normalizeUsage(obj.usage),
+  );
 }
 
 /** Normalise Chat Completions `message.tool_calls` into Adrian tool call records. */
 function normalizeOpenAIToolCalls(raw: unknown): ToolCallRecord[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((call) => {
-    const obj = call && typeof call === "object" ? call as Record<string, unknown> : {};
-    const fn = obj.function && typeof obj.function === "object" ? obj.function as Record<string, unknown> : {};
-    return { id: String(obj.id ?? ""), name: String(fn.name ?? obj.name ?? ""), args: parseToolArgs(fn.arguments ?? obj.arguments ?? obj.args) };
+    const obj = call as Record<string, unknown>;
+    const fn = obj.function as {name: string, arguments: string} | undefined;
+    return { id: String(obj.id ?? ""), name: String(fn?.name ?? obj.name ?? ""), args: parseToolArgs(fn?.arguments) };
   });
 }
 
@@ -244,21 +282,29 @@ function normalizeResponseToolCalls(raw: unknown): ToolCallRecord[] {
  * Handles `response.output_item.added` items and `response.function_call_arguments.delta`.
  */
 function collectResponseStreamToolCall(obj: Record<string, unknown>, toolCallParts: Map<string, { id: string; name: string; args: string }>): void {
-  const item = obj.item && typeof obj.item === "object" ? obj.item as Record<string, unknown> : null;
-  if (item && (item.type === "function_call" || item.type === "tool_call")) {
-    const key = String(item.id ?? item.call_id ?? obj.output_index ?? toolCallParts.size);
-    const current = toolCallParts.get(key) ?? { id: "", name: "", args: "" };
-    toolCallParts.set(key, {
-      id: String(item.call_id ?? item.id ?? current.id),
-      name: String(item.name ?? current.name),
-      args: typeof item.arguments === "string" ? item.arguments : current.args,
-    });
-  }
+  switch (obj.type) {
+    case "response.output_item.added":
+    case "response.output_item.done": {
+      const item = obj.item as Record<string, unknown> | undefined;
+      if (!item || (item.type !== "function_call" && item.type !== "tool_call")) break;
+      const key = String(item.id ?? item.call_id ?? obj.output_index ?? toolCallParts.size);
+      const current = toolCallParts.get(key) ?? { id: "", name: "", args: "" };
+      toolCallParts.set(key, {
+        id: String(item.call_id ?? item.id ?? current.id),
+        name: String(item.name ?? current.name),
+        args: typeof item.arguments === "string" ? item.arguments : current.args,
+      });
+      break;
+    }
 
-  if (obj.type !== "response.function_call_arguments.delta" || typeof obj.delta !== "string") return;
-  const key = String(obj.item_id ?? obj.output_index ?? toolCallParts.size);
-  const current = toolCallParts.get(key) ?? { id: "", name: "", args: "" };
-  toolCallParts.set(key, { ...current, args: current.args + obj.delta });
+    case "response.function_call_arguments.delta": {
+      if (typeof obj.delta !== "string") break;
+      const key = String(obj.item_id ?? obj.output_index ?? toolCallParts.size);
+      const current = toolCallParts.get(key) ?? { id: "", name: "", args: "" };
+      toolCallParts.set(key, { ...current, args: current.args + obj.delta });
+      break;
+    }
+  }
 }
 
 /** Tag events with provider integration metadata for downstream filtering. */
