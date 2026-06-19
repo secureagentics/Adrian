@@ -1,4 +1,4 @@
-"""End-to-end parent-context derivation per multi-agent scenario (S1–S8).
+"""End-to-end parent-context derivation per multi-agent scenario (S1-S8).
 
 Fires the LangChain-shaped callback sequence each scenario produces -
 with the ``langgraph_checkpoint_ns`` metadata LangGraph would emit -
