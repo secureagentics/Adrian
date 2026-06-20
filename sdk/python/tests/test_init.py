@@ -1,5 +1,7 @@
 """Tests for adrian.init / shutdown and auto-instrumentation."""
 
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import asyncio
@@ -68,7 +70,7 @@ class TestInit:
 
         assert log.exists()
 
-    async def test_sync_init_first_async_send_starts_connect_task(self) -> None:
+    def test_sync_init_first_async_send_starts_connect_task(self) -> None:
         """First async send should start connect when init() ran without a loop."""
         adrian.init(
             auto_instrument=False,
@@ -93,9 +95,12 @@ class TestInit:
         async def _fake_connect() -> None:
             connect_calls.append(1)
 
-        with patch.object(ws, "connect", _fake_connect):
-            await ws._send_frame(frame)  # pyright: ignore[reportPrivateUsage]
-            await asyncio.sleep(0)
+        async def _send_once() -> None:
+            with patch.object(ws, "connect", _fake_connect):
+                await ws._send_frame(frame)
+                await asyncio.sleep(0)
+
+        asyncio.run(_send_once())
 
         assert connect_calls == [1]
         assert ws._connect_task is not None
