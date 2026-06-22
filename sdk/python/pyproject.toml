@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "adrian-sdk-oss"
-version = "1.0.2"
+name = "adrian-sdk"
+version = "1.0.3"
 description = "Multi-agent security monitoring SDK for LangChain / LangGraph: paired-event capture, real-time classification, and block mode."
 readme = "README.md"
 license = {text = "Apache-2.0"}
