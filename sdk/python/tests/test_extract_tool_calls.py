@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 SecureAgentics
-"""Unit tests for ``_extract_tool_calls`` — the function whose missing shape
+"""Unit tests for ``_extract_tool_calls`` - the function whose missing shape
 handling let block/HITL skip the verdict wait for ``create_react_agent`` agents.
 
 Covers all three ToolNode input shapes. Shape 3 (per-tool-call dispatch) is the
