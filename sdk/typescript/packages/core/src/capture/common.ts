@@ -1,18 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { currentConfig } from "../config.js";
 import type { AdrianCallbackHandler } from "../handler.js";
 import { getInvocationId, runWithInvocationId } from "../context.js";
-import { assertToolCallsAllowed } from "../policy.js";
-import { getWebSocketClient } from "../registry.js";
 import type { CallbackMetadata, ChatMessage, LlmEndData, TokenUsage, ToolArgs, ToolCallRecord } from "../types.js";
 
-/** Gate tool calls after the paired LLM event has been emitted (maps tool-call ids on the WS client). */
-export async function gateLlmEndData(end: LlmEndData): Promise<void> {
-  await assertToolCallsAllowed(
-    end.toolCalls.map((call) => call.id),
-    getWebSocketClient(),
-    currentConfig()?.blockTimeout ?? 30,
-  );
+/** LLM end tool-call metadata is informational and never blockable. */
+export async function gateLlmEndData(_end: LlmEndData): Promise<void> {
 }
 
 export interface LlmCaptureInput {
