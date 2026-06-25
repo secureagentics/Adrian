@@ -30,6 +30,7 @@ from importlib.metadata import version as _dist_version
 from pathlib import Path
 from typing import Any
 
+from adrian.anthropic_handler import anthropic_invocation, anthropic_invocation_sync
 from adrian.config import (
     AdrianConfig,
     OnAuditCallback,
@@ -106,6 +107,9 @@ __all__ = [
     "__version__",
     "mcp_servers",
     "redact_text",
+    "patch_anthropic",
+    "anthropic_invocation",
+    "anthropic_invocation_sync",
 ]
 
 logger = logging.getLogger("adrian")
@@ -346,6 +350,7 @@ def init(
 
     if auto_instrument:
         _auto_instrument_langchain()
+        _auto_instrument_anthropic()
 
     # MCP server tracking is independent of LangChain auto-instrumentation,
     # it observes a different library (langchain-mcp-adapters) and is the
@@ -377,6 +382,26 @@ def shutdown() -> None:
     _handler = None
     _ws_client = None
     set_config(None)
+
+
+def patch_anthropic() -> None:
+    """Apply Anthropic SDK instrumentation.
+
+    Monkey-patches ``anthropic.Anthropic`` and ``anthropic.AsyncAnthropic`` so
+    that every ``messages.create`` call is captured as an Adrian ``PairedEvent``.
+    Called automatically by :func:`init` when ``auto_instrument=True``.
+
+    Call explicitly only when ``auto_instrument=False``::
+
+        adrian.init(api_key="...", auto_instrument=False)
+        adrian.patch_anthropic()
+    """
+    from adrian.anthropic_handler import patch_anthropic as _patch
+
+    _patch(
+        hooks_getter=lambda: _hooks,
+        config_getter=lambda: get_config() if is_initialized() else None,
+    )
 
 
 def get_handler() -> AdrianCallbackHandler | None:
@@ -499,6 +524,15 @@ def patch_langchain() -> None:
 # ------------------------------------------------------------------
 # Auto-instrumentation
 # ------------------------------------------------------------------
+
+
+def _auto_instrument_anthropic() -> None:
+    """Apply Anthropic SDK monkey-patches if the package is installed."""
+    try:
+        patch_anthropic()
+        logger.debug("Anthropic auto-instrumentation applied")
+    except Exception:
+        logger.exception("Anthropic auto-instrumentation failed")
 
 
 def _auto_instrument_langchain() -> None:
