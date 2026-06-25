@@ -11,7 +11,12 @@ import { envAwareResolveSessionId } from "./sessionPersistence.js";
 import { WebSocketClient } from "./ws.js";
 import type { EventHandler, McpServer } from "./types.js";
 
-export const version = "1.0.0";
+declare const __ADRIAN_CORE_VERSION__: string | undefined;
+
+// Inlined from package.json at build time (see tsup.config.ts); falls back
+// to a dev marker when run unbuilt (tests, ts-node), where the define is absent.
+export const version: string =
+  typeof __ADRIAN_CORE_VERSION__ === "string" ? __ADRIAN_CORE_VERSION__ : "0.0.0-dev";
 export const __version__ = version;
 
 let hooks: HookRegistry | null = null;
