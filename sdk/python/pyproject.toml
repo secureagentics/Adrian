@@ -41,6 +41,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+anthropic = [
+    "anthropic>=0.40.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
@@ -51,6 +54,7 @@ dev = [
     "langgraph==1.1.2",
     "langgraph-prebuilt==1.0.8",
     "langchain-mcp-adapters>=0.2.2",
+    "anthropic>=0.40.0",
 ]
 
 [project.urls]
