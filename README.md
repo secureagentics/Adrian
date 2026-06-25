@@ -51,13 +51,14 @@ The next fastest way to try Adrian is the managed dashboard at [app.adrian.secur
    pip install adrian-sdk
    ```
 
-4. Install the LangChain provider for your agent's model (the SDK auto-instruments LangChain / LangGraph; pick whichever provider matches your model):
+4. Install LangChain and the provider for your agent's model (the SDK auto-instruments LangChain / LangGraph; pick whichever provider matches your model):
 
    ```sh
-   pip install langgraph langchain-openai   # or langchain-anthropic, etc.
+   pip install langchain langchain-openai   # or langchain-anthropic, etc.
+   # or, in a uv project:  uv add langchain langchain-openai
    ```
 
-   <sup>Last verified with `langchain-core==1.3.3`, `langgraph==1.1.2`, `langchain-openai==1.2.1` (2026-05-08).</sup>
+   <sup>`langchain` pulls `langgraph` in, so this covers both `create_agent` and `create_react_agent`. Last verified 2026-06-24 with `langchain==1.3.9`, `langgraph==1.2.5`, `langchain-core==1.4.7`, `langchain-openai==1.3.2`. Supported: `langchain`/`langgraph`/`langchain-openai` `>=1.0,<2.0`, `langchain-core` `>=1.2.19,<2.0`.</sup>
 
 5. Wrap your LangChain agent. Two lines of Adrian (`init` + `shutdown`) bracket your normal LangChain / LangGraph code:
 
@@ -78,7 +79,7 @@ The next fastest way to try Adrian is the managed dashboard at [app.adrian.secur
    asyncio.run(main())
    ```
 
-   Full runnable version (with env-var checks) at [`examples/quickstart.py`](examples/quickstart.py).
+   Full runnable version (with env-var checks) at [`examples/python/quickstart.py`](examples/python/quickstart.py). More complex examples using agents are in [`examples/python/`](examples/python/).
 
 6. Run your agent. Events appear in the dashboard within seconds, classified by severity.
 
@@ -130,13 +131,13 @@ Adrian supports entirely offline, data sovereign deployments using just a handfu
    source .venv/bin/activate
    ```
 
-   Install the LangChain provider for your agent's model into the same venv:
+   Install LangChain and the provider for your agent's model into the same venv:
 
    ```sh
-   uv pip install langgraph langchain-openai   # or your chosen langchain provider
+   uv pip install "langchain>=1.0,<2.0" "langchain-openai>=1.0,<2.0"   # swap langchain-openai for your model's provider
    ```
 
-   <sup>Last verified with `langchain-core==1.3.3`, `langgraph==1.1.2`, `langchain-openai==1.2.1` (2026-05-08).</sup>
+   <sup>`langchain` pulls `langgraph` in, so this covers both `create_agent` and `create_react_agent`. Last verified 2026-06-24 with `langchain==1.3.9`, `langgraph==1.2.5`, `langchain-core==1.4.7`, `langchain-openai==1.3.2`.</sup>
 
    Use the same `adrian.init` snippet as in the [Quickstart](#quickstart) above. The SDK defaults to `ws://localhost:8080/ws`, so a self-hosted setup needs nothing more than the API key - drop the `ws_url=` line.
 
@@ -165,16 +166,16 @@ flowchart TD
 
 <table>
   <thead>
-    <tr><th></th><th>At launch</th><th>On roadmap</th></tr>
+    <tr><th></th><th>Supported</th><th>On roadmap</th></tr>
   </thead>
   <tbody>
     <tr>
       <th align="left">Frameworks</th>
       <td>
-        <a href="https://www.langchain.com/"><img height="32" src="https://cdn.simpleicons.org/langchain/1FA383" alt="LangChain"></a>
+        <a href="https://www.langchain.com/"><img height="32" src="https://cdn.simpleicons.org/langchain/1FA383" alt="LangChain"></a>&nbsp;&nbsp;
+        <a href="https://platform.openai.com/docs/agents"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logos/openai-dark.svg"><img height="32" src="assets/logos/openai-light.svg" alt="OpenAI Agents SDK"></picture></a>
       </td>
       <td>
-        <a href="https://platform.openai.com/docs/agents"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logos/openai-dark.svg"><img height="32" src="assets/logos/openai-light.svg" alt="OpenAI Agents SDK"></picture></a>&nbsp;&nbsp;
         <a href="https://docs.anthropic.com/"><img height="32" src="https://cdn.simpleicons.org/anthropic/D97757" alt="Anthropic Agents SDK"></a>&nbsp;&nbsp;
         <a href="https://www.crewai.com/"><img height="32" src="https://cdn.simpleicons.org/crewai/FF5A50" alt="CrewAI"></a>&nbsp;&nbsp;
         <a href="https://github.com/openclaw/openclaw"><img height="32" src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/pixel-lobster.svg" alt="OpenClaw"></a>

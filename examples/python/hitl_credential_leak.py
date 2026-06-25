@@ -25,7 +25,7 @@ Optional env:
 
 Run:
     ADRIAN_API_KEY=adr_local_... OPENAI_API_KEY=sk-... \\
-        python examples/hitl_credential_leak.py
+        python examples/python/hitl_credential_leak.py
 """
 
 from __future__ import annotations

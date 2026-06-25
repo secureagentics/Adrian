@@ -231,12 +231,7 @@ def init(
 
     resolved_key = api_key or os.getenv("ADRIAN_API_KEY") or None
     resolved_file = Path(os.getenv("ADRIAN_LOG_FILE", str(log_file)))
-    # Default to the hosted Adrian backend so `adrian.init(api_key=...)`
-    # Just Works for freemium users. Self-hosted users override via
-    # ws_url= or ADRIAN_WS_URL.
-    resolved_ws_url = (
-        os.getenv("ADRIAN_WS_URL") or ws_url or "wss://adrian.secureagentics.ai/ws"
-    )
+    resolved_ws_url = os.getenv("ADRIAN_WS_URL") or ws_url or "ws://localhost:8080/ws"
     resolved_session = (
         os.getenv("ADRIAN_SESSION_ID") or session_id or resolve_session_id()
     )
