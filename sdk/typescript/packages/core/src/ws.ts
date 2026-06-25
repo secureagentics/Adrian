@@ -162,7 +162,7 @@ export class WebSocketClient implements EventHandler {
 
   private async connectOnce(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(this.url, { headers: { Authorization: `Bearer ${this.apiKey}`, "User-Agent": "adrian-typescript-sdk" }, perMessageDeflate: false });
+      const ws = new WebSocket(this.url, { headers: { Authorization: `Bearer ${this.apiKey}`, "User-Agent": "adrian-typescript-sdk" } });
       this.ws = ws;
       ws.binaryType = "arraybuffer";
       ws.once("open", () => {
