@@ -30,6 +30,11 @@ To group multi-turn calls under a single invocation ID::
         r2 = await client.messages.create(...)  # same invocation_id as r1
 """
 
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false
+
 from __future__ import annotations
 
 import asyncio
@@ -61,7 +66,7 @@ _config_getter: Callable[[], AdrianConfig | None] | None = None
 # ------------------------------------------------------------------
 
 
-def _flatten_content(content: str | list[Any]) -> str:
+def _flatten_content(content: Any) -> str:  # noqa: ANN401
     """Flatten Anthropic message content to a plain string.
 
     Anthropic messages carry either a plain string or a list of content
@@ -451,14 +456,14 @@ def patch_anthropic(
     _config_getter = config_getter
 
     try:
-        import anthropic
+        from anthropic.resources.messages import AsyncMessages, Messages
     except ImportError:
         logger.debug("anthropic package not installed; skipping Anthropic patching")
         return
 
     # ---- sync Messages.create ----
     try:
-        sync_cls = anthropic.resources.Messages
+        sync_cls = Messages
 
         if not getattr(sync_cls, "_adrian_patched", False):
             _original_sync = sync_cls.create
@@ -483,7 +488,7 @@ def patch_anthropic(
 
     # ---- async AsyncMessages.create ----
     try:
-        async_cls = anthropic.resources.AsyncMessages
+        async_cls = AsyncMessages
 
         if not getattr(async_cls, "_adrian_patched", False):
             _original_async = async_cls.create
