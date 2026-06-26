@@ -25,6 +25,8 @@ import asyncio
 import atexit
 import logging
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -74,7 +76,10 @@ from adrian.session_persistence import resolve_session_id
 from adrian.types import ToolCallRecord, VerdictContext
 from adrian.ws import WebSocketClient
 
-__version__ = "1.0.2"
+try:
+    __version__ = _dist_version("adrian-sdk")
+except PackageNotFoundError:  # running from a source tree that isn't installed
+    __version__ = "0.0.0+unknown"
 __all__ = [
     "init",
     "shutdown",
