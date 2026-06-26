@@ -464,7 +464,9 @@ def patch_anthropic(
             _original_sync = sync_cls.create
 
             def _patched_sync_create(
-                self: Any, *args: Any, **kwargs: Any  # noqa: ANN401
+                self: Any,
+                *args: Any,
+                **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = _original_sync(self, *args, **kwargs)
                 _schedule_emit(response, kwargs)
@@ -487,7 +489,9 @@ def patch_anthropic(
             _original_async = async_cls.create
 
             async def _patched_async_create(
-                self: Any, *args: Any, **kwargs: Any  # noqa: ANN401
+                self: Any,
+                *args: Any,
+                **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = await _original_async(self, *args, **kwargs)
                 await _emit_pair(response, kwargs)
