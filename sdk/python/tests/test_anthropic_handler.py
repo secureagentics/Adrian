@@ -242,7 +242,9 @@ class TestExtractAnthropicToolCalls:
             b.input = {}
             return b
 
-        result = _extract_anthropic_tool_calls([_make("tool_a", "c1"), _make("tool_b", "c2")])
+        result = _extract_anthropic_tool_calls(
+            [_make("tool_a", "c1"), _make("tool_b", "c2")]
+        )
         assert len(result) == 2
         assert {r["name"] for r in result} == {"tool_a", "tool_b"}
 
@@ -327,7 +329,10 @@ class TestExtractResponseText:
         assert _extract_response_text([]) == ""
 
     def test_dict_text_block(self) -> None:
-        assert _extract_response_text([{"type": "text", "text": "dict text"}]) == "dict text"
+        assert (
+            _extract_response_text([{"type": "text", "text": "dict text"}])
+            == "dict text"
+        )
 
 
 # ------------------------------------------------------------------
@@ -516,7 +521,10 @@ class TestBuildAnthropicLlmPair:
             invocation_id="i",
             run_id="r",
         )
-        assert build_anthropic_llm_pair(**kwargs).event_id != build_anthropic_llm_pair(**kwargs).event_id
+        assert (
+            build_anthropic_llm_pair(**kwargs).event_id
+            != build_anthropic_llm_pair(**kwargs).event_id
+        )
 
     def test_parent_is_none(self) -> None:
         pair = build_anthropic_llm_pair(
@@ -641,7 +649,9 @@ class TestPatchAnthropicGetters:
         hooks_a: list[HookRegistry] = [HookRegistry()]
         config_a: list[AdrianConfig] = [AdrianConfig()]
 
-        patch_anthropic(hooks_getter=lambda: hooks_a[0], config_getter=lambda: config_a[0])
+        patch_anthropic(
+            hooks_getter=lambda: hooks_a[0], config_getter=lambda: config_a[0]
+        )
 
         assert _ah._hooks_getter is not None
         assert _ah._config_getter is not None
@@ -656,7 +666,9 @@ class TestPatchAnthropicGetters:
         assert _ah._hooks_getter() is hooks_b
         assert _ah._config_getter() is config_b
 
-    def test_no_op_when_anthropic_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_op_when_anthropic_not_installed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import sys
 
         saved = sys.modules.pop("anthropic", None)
