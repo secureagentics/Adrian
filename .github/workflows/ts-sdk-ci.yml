@@ -1,0 +1,44 @@
+# CI for the TypeScript SDK (sdk/typescript).
+#
+# Runs the canonical install + build + test on every supported OS so a
+# platform-incomplete or peer-broken package-lock.json fails CI instead of
+# shipping.
+#
+# # `npm ci` is deliberate (not `npm install`): it refuses to mutate the
+# lockfile and fails fast on any of the above. The OS matrix is what catches
+# a lockfile that only carries one platform's optional native binaries.
+
+name: TS SDK CI
+
+on:
+  pull_request:
+    paths:
+      - "sdk/typescript/**"
+      - ".github/workflows/ts-sdk-ci.yml"
+
+defaults:
+  run:
+    working-directory: sdk/typescript
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      # Strict, lockfile-faithful install. Fails on peer conflicts, an
+      # out-of-sync lockfile, or missing integrity hashes.
+      - run: npm ci
+      # build runs tsup + tsc; test runs vitest (whose native binding is the
+      # piece that breaks when the lockfile omits this OS's optional binary).
+      # No -w: build/test every workspace package (core + openai + future providers).
+      - run: npm run build
+      - run: npm run test
