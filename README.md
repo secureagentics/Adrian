@@ -210,7 +210,7 @@ Adrian is released under the [Apache 2.0 licence](LICENSE). New source files sho
 
 ## Community
 
-- [Discord](https://discord.gg/6nmJ9k3u6) for chat with the team and other Adrian users
+- [Discord](https://discord.gg/Vq2VyYrw8Z) for chat with the team and other Adrian users
 - [LinkedIn](https://www.linkedin.com/company/secure-agentics) for product updates
 
 ## Featured on
