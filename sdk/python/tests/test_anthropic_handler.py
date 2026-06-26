@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 import adrian.anthropic_handler as _ah
+import pytest
 from adrian.anthropic_handler import (
     _derive_agent_id,
     _emit_pair,
@@ -32,7 +31,6 @@ from adrian.context import get_invocation_id, set_invocation_id
 from adrian.format.types import LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
 from adrian.types import ChatMessage
-
 
 # ------------------------------------------------------------------
 # Shared helpers
