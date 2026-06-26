@@ -39,5 +39,6 @@ jobs:
       - run: npm ci
       # build runs tsup + tsc; test runs vitest (whose native binding is the
       # piece that breaks when the lockfile omits this OS's optional binary).
-      - run: npm run build -w @secureagentics/adrian
-      - run: npm run test -w @secureagentics/adrian
+      # No -w: build/test every workspace package (core + openai + future providers).
+      - run: npm run build
+      - run: npm run test
