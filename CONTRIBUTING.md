@@ -76,4 +76,4 @@ Every contribution is provided under the terms of the Apache 2.0 licence (see [L
 - Architecture / design discussions: open a GitHub Discussion.
 - Bugs: open an [issue](https://github.com/secureagentics/Adrian/issues/new/choose).
 - Feature requests: open an [issue](https://github.com/secureagentics/Adrian/issues/new/choose).
-- Chat: [Discord](https://discord.gg/6nmJ9k3u6).
+- Chat: [Discord](https://discord.gg/Vq2VyYrw8Z).
