@@ -30,7 +30,7 @@ from langchain_openai import ChatOpenAI
 
 
 async def main():
-    adrian.init(api_key="adr_live_...")
+    adrian.init(api_key="adr_local_...")
 
     # Your LangChain / LangGraph code runs normally - every call is captured.
     llm = ChatOpenAI(model="gpt-4o")
@@ -46,7 +46,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The SDK defaults to `wss://adrian.secureagentics.ai/ws` (the hosted Adrian backend). Override via `ws_url=` or `ADRIAN_WS_URL` to point at a self-hosted backend, or override the `handlers=` list entirely for JSONL-only / custom transports.
+The SDK defaults to `ws://localhost:8080/ws` (a self-hosted backend). Point `ws_url=` or `ADRIAN_WS_URL` at your backend (for the hosted service, `wss://adrian.secureagentics.ai/ws`), or override the `handlers=` list entirely for JSONL-only / custom transports.
 
 The Quickstart uses the async pattern (`asyncio.run` + `await llm.ainvoke`) because the WebSocket transport runs on the asyncio loop - sync `llm.invoke` returns before the loop has a chance to flush events.
 
@@ -124,7 +124,7 @@ When `auto_instrument=True` (the default), the SDK monkey-patches LangChain at i
 import adrian
 from langchain_openai import ChatOpenAI
 
-adrian.init(api_key="adr_live_...", auto_instrument=False)
+adrian.init(api_key="adr_local_...", auto_instrument=False)
 handler = adrian.get_handler()
 
 llm = ChatOpenAI(model="gpt-4o")
