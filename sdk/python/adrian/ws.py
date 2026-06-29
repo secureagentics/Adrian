@@ -447,6 +447,12 @@ class WebSocketClient:
         if self._connect_task is None or self._connect_task.done():
             self._connect_task = loop.create_task(self.connect())
 
+    def _ensure_connect_task(self) -> None:
+        """Start the initial/reconnect task if none is currently running."""
+        if self._connect_task is None or self._connect_task.done():
+            loop = asyncio.get_running_loop()
+            self._connect_task = loop.create_task(self.connect())
+
     async def connect(self) -> None:
         """Establish the WebSocket with exponential-backoff retry.
 
@@ -581,6 +587,8 @@ class WebSocketClient:
 
         if not self._connected.is_set() or self._replaying:
             self._buffer_frame(frame_bytes)
+            if not self._replaying:
+                self._ensure_connect_task()
             reason = "disconnected" if not self._connected.is_set() else "replaying"
             logger.info(
                 "buffered for replay (session_id=%s, kind=%s, "
@@ -597,6 +605,8 @@ class WebSocketClient:
 
         if ws is None:
             self._buffer_frame(frame_bytes)
+            if not self._connected.is_set():
+                self._ensure_connect_task()
 
             return
 
@@ -878,10 +888,7 @@ class WebSocketClient:
         if self._closing:
             return
 
-        loop = asyncio.get_running_loop()
-
-        if self._connect_task is None or self._connect_task.done():
-            self._connect_task = loop.create_task(self.connect())
+        self._ensure_connect_task()
 
     async def _fire_on_disconnect(self, reason: str) -> None:
         """Invoke the on_disconnect callback, catching any exception."""
