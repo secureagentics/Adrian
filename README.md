@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Open-source runtime security monitoring and control for AI agents.</b>
+  <b>The open-source runtime security toolkit for AI agents — monitoring and in-flight control.</b>
 </p>
 
 <p align="center">
