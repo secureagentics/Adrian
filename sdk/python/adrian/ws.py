@@ -343,8 +343,7 @@ class WebSocketClient:
     def fail_closed_on_classifier_error(self) -> bool:
         """Whether classifier errors/timeouts should halt tool execution."""
         return bool(
-            self._policy is not None
-            and self._policy.fail_closed_on_classifier_error
+            self._policy is not None and self._policy.fail_closed_on_classifier_error
         )
 
     # -- EventHandler protocol --
