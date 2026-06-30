@@ -764,7 +764,7 @@ def _patch_langgraph() -> None:
 
 def _extract_tool_calls(
     state: dict[str, Any] | list[BaseMessage],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Extract tool_calls from the ToolNode input.
 
     ``ToolNode`` is reached with three input shapes:
@@ -791,7 +791,13 @@ def _extract_tool_calls(
             return [tc]
         tc_id = getattr(tc, "id", None)
         if tc_id:
-            return [{"id": tc_id, "name": getattr(tc, "name", ""), "args": getattr(tc, "args", {})}]
+            return [
+                {
+                    "id": tc_id,
+                    "name": getattr(tc, "name", ""),
+                    "args": getattr(tc, "args", {}),
+                }
+            ]
         return []
 
     if isinstance(state, dict):

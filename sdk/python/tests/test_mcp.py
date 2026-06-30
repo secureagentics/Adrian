@@ -321,11 +321,22 @@ class TestRebindAcrossModules:
     """
 
     def test_adapter_sessions_bindings_are_patched(self) -> None:
-        for attr in ("stdio_client", "streamablehttp_client", "sse_client"):
+        for attr in ("stdio_client", "sse_client"):
             fn = getattr(adapter_sessions, attr, None)
             assert fn is not None, f"{attr} not present in adapter sessions"
             assert getattr(fn, "_adrian_mcp_patched", False), (
                 f"{attr} in langchain_mcp_adapters.sessions was not rebound"
+            )
+        http_names = [
+            name
+            for name in ("streamable_http_client", "streamablehttp_client")
+            if getattr(adapter_sessions, name, None) is not None
+        ]
+        assert http_names, "no streamable-http client present in adapter sessions"
+        for name in http_names:
+            fn = getattr(adapter_sessions, name)
+            assert getattr(fn, "_adrian_mcp_patched", False), (
+                f"{name} in langchain_mcp_adapters.sessions was not rebound"
             )
 
 

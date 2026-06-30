@@ -1,6 +1,6 @@
 # Adrian pre-commit hooks. Run on every `git commit` once `pre-commit
 # install` has been run from this repo's root (see CONTRIBUTING.md).
-# Scoped to Python files under `sdk/` and `scripts/`.
+# Scoped to Python files under `sdk/python/` and `scripts/`.
 
 default_install_hook_types: [pre-commit]
 default_language_version:
@@ -22,9 +22,9 @@ repos:
     rev: v0.15.12
     hooks:
       - id: ruff-format
-        files: ^(sdk|scripts)/.*\.py$
+        files: ^(sdk/python|scripts)/.*\.py$
       - id: ruff-check
-        files: ^(sdk|scripts)/.*\.py$
+        files: ^(sdk/python|scripts)/.*\.py$
         args: [--fix]
 
   - repo: local
@@ -34,6 +34,6 @@ repos:
         entry: basedpyright
         language: system
         types: [python]
-        files: ^sdk/adrian/.*\.py$
+        files: ^sdk/python/adrian/.*\.py$
         pass_filenames: false
-        args: [-p, sdk, sdk/adrian]
+        args: [-p, sdk/python, sdk/python/adrian]
