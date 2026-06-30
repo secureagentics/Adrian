@@ -30,13 +30,10 @@ const (
 )
 
 // HTTPClient classifies paired events by POSTing to ADRIAN_LLM_URL.
-// Any classifier failure (transport, non-2xx HTTP, malformed body,
-// no parseable M-code) falls back to a synthetic M0 / benign verdict
-// with the cause stored on the Reasoning column and a WARN logged.
-// Adrian's posture is fail-open: a classifier outage on our side
-// must not halt the operator's agent. The trade-off is that a
-// malicious agent who can DOS the classifier rides this path;
-// detection-class outages are treated the same as model parse misses.
+// Classifier failures (transport, non-2xx HTTP, malformed body,
+// empty choices, or no parseable M-code) are returned as errors. The
+// WS ingest layer records those as status=ERROR verdicts and applies
+// the active execution policy.
 //
 // The classifier owns the SlidingWindow: every call acquires the
 // per-(session, invocation, agent_id) lock, reads history into the
@@ -148,9 +145,8 @@ func (c *HTTPClient) lookupProfile(ctx context.Context, id string) *store.AgentP
 
 // classifyOnce renders the trace, builds the message array (with the
 // optional history prepended), POSTs, and parses. Returns (nil, error)
-// on any failure; the WS handler is responsible for the mode-specific
-// fail-closed dispatch (halt the SDK in BLOCK, queue for review in
-// HITL, audit-only in ALERT).
+// on any failure; the WS handler is responsible for persisting the
+// status=ERROR verdict and applying the active execution policy.
 func (c *HTTPClient) classifyOnce(ctx context.Context, ev *pb.PairedEvent, history []HistoryItem, guid string, profile *store.AgentProfile) (*Verdict, error) {
 	start := time.Now()
 	trace := extractTrace(ev, guid)
@@ -165,24 +161,22 @@ func (c *HTTPClient) classifyOnce(ctx context.Context, ev *pb.PairedEvent, histo
 
 	raw, err := c.post(ctx, body)
 	if err != nil {
-		// Transport / non-2xx. Fail open with M0 / benign so the
-		// agent isn't halted by a classifier outage on our side.
-		return c.failOpen(ctx, fmt.Errorf("post: %w", err), start), nil
+		return nil, fmt.Errorf("post: %w", err)
 	}
 
 	var parsed responseBody
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return c.failOpen(ctx, fmt.Errorf("unmarshal: %w", err), start), nil
+		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
-		return c.failOpen(ctx, errors.New("no choices in response"), start), nil
+		return nil, errors.New("no choices in response")
 	}
 
 	rawContent := parsed.Choices[0].Message.Content
 	stripped := stripReasoning(rawContent)
 	code := parseMADCode(stripped)
 	if code == "" {
-		return c.failOpen(ctx, fmt.Errorf("no MAD code in response: %q", truncate(stripped, 200)), start), nil
+		return nil, fmt.Errorf("no MAD code in response: %q", truncate(stripped, 200))
 	}
 
 	classification := madCodeToClassification(code)
@@ -228,23 +222,6 @@ func (c *HTTPClient) post(ctx context.Context, body requestBody) ([]byte, error)
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, truncate(string(respBody), 200))
 	}
 	return respBody, nil
-}
-
-// failOpen returns a synthetic M0 / benign verdict on any classifier
-// failure (transport, non-2xx, malformed JSON, empty choices, no
-// parseable M-code). WARN-logged with the cause; the cause string
-// also lands on the Reasoning column so operators can distinguish a
-// classifier outage from a benign-by-classification verdict in the
-// dashboard. Adrian's posture is fail-open: a classifier outage on
-// our side must not halt the operator's agent.
-func (c *HTTPClient) failOpen(ctx context.Context, cause error, start time.Time) *Verdict {
-	slog.WarnContext(ctx, "engine.classifier_failure_fail_open", "error", cause)
-	return &Verdict{
-		MADCode:        "M0",
-		Classification: "benign",
-		Reasoning:      "classifier failure (fail-open): " + cause.Error(),
-		LatencyMS:      time.Since(start).Milliseconds(),
-	}
 }
 
 // Ping reaches the configured classifier URL with a short timeout to

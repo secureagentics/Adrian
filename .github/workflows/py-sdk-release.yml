@@ -1,0 +1,52 @@
+# Publish the Python SDK (adrian-sdk) to PyPI on a `python-sdk-v*` tag.
+name: Release Python SDK to PyPI
+
+on:
+  push:
+    tags:
+      - "python-sdk-v*"
+
+defaults:
+  run:
+    working-directory: sdk/python
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync deps (incl. dev)
+        run: uv sync --extra dev
+      - name: Tests
+        run: uv run pytest
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Tag matches pyproject version
+        run: |
+          tag="${GITHUB_REF_NAME#python-sdk-v}"
+          proj="$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "tag=$tag pyproject=$proj"
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::tag ($tag) does not match sdk/python/pyproject.toml version ($proj)"
+            exit 1
+          fi
+      - name: Build wheel + sdist
+        run: uv build
+      - name: Verify dist metadata
+        run: uvx twine check dist/*
+      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        run: uv publish --trusted-publishing always

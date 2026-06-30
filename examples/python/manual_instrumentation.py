@@ -22,7 +22,7 @@ Optional env:
 
 Run:
     ADRIAN_API_KEY=adr_local_... OPENAI_API_KEY=sk-... \\
-        python examples/manual_instrumentation.py
+        python examples/python/manual_instrumentation.py
 """
 from __future__ import annotations
 

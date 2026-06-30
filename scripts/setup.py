@@ -72,6 +72,7 @@ GEMMA_VARIANTS = {
     },
 }
 DEFAULT_VARIANT = "E4B"
+NO_TRANSACTION_MARKER = "-- adrian: no-transaction"
 
 
 # ----------------------------------------------------------------
@@ -108,19 +109,190 @@ def open_db(db_path: Path) -> sqlite3.Connection:
 
 
 def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> list[str]:
-    """Apply every `*.sql` file in lexical order. Returns the list of
-    files applied. The migrations themselves use `IF NOT EXISTS` and
-    `INSERT OR IGNORE`, so re-applying is a no-op."""
+    """Apply previously-unseen `*.sql` files in lexical order.
+
+    Applied filenames are recorded in `schema_migrations`, matching the
+    Go backend runner. This keeps setup/bootstrap safe for future
+    migrations that cannot be written as idempotent SQL.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name       TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """,
+    )
+    conn.commit()
+
     applied: list[str] = []
     sql_files = sorted(migrations_dir.glob("*.sql"))
     if not sql_files:
         raise SystemExit(f"no migrations found in {migrations_dir}")
     for path in sql_files:
+        if migration_applied(conn, path.name):
+            continue
+        reconciled, applied_recovery = reconcile_migration_002(conn, path.name)
+        if reconciled:
+            if applied_recovery:
+                applied.append(path.name)
+            continue
         sql = path.read_text(encoding="utf-8")
-        conn.executescript(sql)
+        if NO_TRANSACTION_MARKER in sql:
+            try:
+                conn.executescript(sql)
+                conn.execute(
+                    "INSERT INTO schema_migrations (name) VALUES (?)", (path.name,)
+                )
+                conn.commit()
+            except sqlite3.Error:
+                conn.rollback()
+                conn.execute("PRAGMA foreign_keys=ON")
+                raise
+        else:
+            try:
+                conn.executescript("BEGIN;\n" + sql + "\n")
+                conn.execute(
+                    "INSERT INTO schema_migrations (name) VALUES (?)", (path.name,)
+                )
+                conn.commit()
+            except sqlite3.Error:
+                conn.rollback()
+                raise
         applied.append(path.name)
-    conn.commit()
     return applied
+
+
+def migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    """Return True when `name` has already been recorded in the ledger."""
+    row = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE name = ?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
+def reconcile_migration_002(conn: sqlite3.Connection, name: str) -> tuple[bool, bool]:
+    """Recover 002 if it completed or stopped after adding the policy column."""
+    if name != "002_verdict_status_policy.sql":
+        return False, False
+
+    has_policy_column = table_has_column(
+        conn, "policies", "fail_closed_on_classifier_error"
+    )
+    has_verdict_status = table_has_column(conn, "verdicts", "verdict_status")
+    allows_error_classification = table_sql_contains(conn, "verdicts", "'error'")
+
+    if has_policy_column and has_verdict_status and allows_error_classification:
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)", (name,)
+        )
+        conn.commit()
+        return True, False
+
+    if has_policy_column:
+        try:
+            conn.executescript(MIGRATION_002_VERDICTS_RECOVERY_SQL)
+            conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (name,))
+            conn.commit()
+            return True, True
+        except sqlite3.Error:
+            conn.rollback()
+            conn.execute("PRAGMA foreign_keys=ON")
+            raise
+
+    if has_verdict_status and allows_error_classification:
+        conn.execute(MIGRATION_002_POLICY_COLUMN_SQL)
+        conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (name,))
+        conn.commit()
+        return True, True
+
+    return False, False
+
+
+def table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(
+        row[0] == column
+        for row in conn.execute("SELECT name FROM pragma_table_info(?)", (table,))
+    )
+
+
+def table_sql_contains(conn: sqlite3.Connection, table: str, needle: str) -> bool:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None and needle in row[0]
+
+
+MIGRATION_002_POLICY_COLUMN_SQL = """
+ALTER TABLE policies
+    ADD COLUMN fail_closed_on_classifier_error INTEGER NOT NULL DEFAULT 0
+        CHECK (fail_closed_on_classifier_error IN (0,1))
+"""
+
+
+MIGRATION_002_VERDICTS_RECOVERY_SQL = """
+PRAGMA foreign_keys=OFF;
+
+BEGIN;
+
+DROP TABLE IF EXISTS verdicts_new;
+
+CREATE TABLE verdicts_new (
+    id               TEXT    PRIMARY KEY,
+    event_id         TEXT    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    session_id       TEXT    NOT NULL,
+    agent_profile_id TEXT             REFERENCES agent_profiles(id) ON DELETE SET NULL,
+    mad_code         TEXT    NOT NULL,
+    classification   TEXT    NOT NULL CHECK (classification IN ('benign','notify','block','error')),
+    verdict_status   TEXT    NOT NULL DEFAULT 'ok'
+                                CHECK (verdict_status IN ('ok','error')),
+    reasoning        TEXT,
+    latency_ms       INTEGER,
+    tokens_used      INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+INSERT INTO verdicts_new (
+    id,
+    event_id,
+    session_id,
+    agent_profile_id,
+    mad_code,
+    classification,
+    verdict_status,
+    reasoning,
+    latency_ms,
+    tokens_used,
+    created_at
+)
+SELECT
+    id,
+    event_id,
+    session_id,
+    agent_profile_id,
+    mad_code,
+    classification,
+    'ok',
+    reasoning,
+    latency_ms,
+    tokens_used,
+    created_at
+FROM verdicts;
+
+DROP TABLE verdicts;
+ALTER TABLE verdicts_new RENAME TO verdicts;
+
+CREATE INDEX IF NOT EXISTS idx_verdicts_event_id   ON verdicts(event_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_session_id ON verdicts(session_id);
+CREATE INDEX IF NOT EXISTS idx_verdicts_created_at ON verdicts(created_at);
+
+COMMIT;
+
+PRAGMA foreign_key_check;
+PRAGMA foreign_keys=ON;
+"""
 
 
 def read_env(env_path: Path) -> dict[str, str]:
@@ -540,7 +712,7 @@ def cmd_apply_migrations(args: argparse.Namespace) -> int:
 
     sys.stdout.write(
         f"\n"
-        f"v {len(applied)} migration file(s) re-applied (idempotent):\n"
+        f"v {len(applied)} new migration file(s) applied:\n"
         + "".join(f"    {name}\n" for name in applied)
         + "\n"
     )
@@ -587,7 +759,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_model.add_argument("--ctx-size", type=int, default=None)
     p_model.set_defaults(func=cmd_set_model)
 
-    p_migrate = sub.add_parser("apply-migrations", help="re-apply schema migrations")
+    p_migrate = sub.add_parser(
+        "apply-migrations", help="apply pending schema migrations"
+    )
     p_migrate.set_defaults(func=cmd_apply_migrations)
 
     return parser

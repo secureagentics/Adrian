@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 SecureAgentics
 
-// Package db opens the SQLite database, applies idempotent migrations,
-// and exposes the *sql.DB handle to the rest of the backend.
+// Package db opens the SQLite database, applies pending ledger-tracked
+// migrations, and exposes the *sql.DB handle to the rest of the backend.
 package db
 
 import (
@@ -16,8 +16,9 @@ import (
 )
 
 // Open opens the SQLite database at path, applies the WAL / FK
-// pragmas, and runs every embedded migration in lexical order.
-// Migrations are idempotent so re-running on each startup is safe.
+// pragmas, and runs each pending embedded migration in lexical order.
+// Applied migrations are recorded in schema_migrations so startup can
+// safely skip files that already ran.
 func Open(path string) (*sql.DB, error) {
 	conn, err := sql.Open("sqlite", path)
 	if err != nil {

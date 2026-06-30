@@ -47,11 +47,12 @@ func stripReasoning(content string) string {
 	}
 }
 
-// madCodeToClassification maps an M-code to its display classification.
-// Unknown codes return "benign" (caller should log a warn).
+// madCodeToClassification maps a classifier-produced M-code to its
+// display classification. Empty or unknown codes are operational
+// classifier errors, not benign results.
 func madCodeToClassification(code string) string {
-	if code == "" {
-		return "benign"
+	if len(code) < 2 {
+		return "error"
 	}
 	switch code[:2] {
 	case "M0":
@@ -61,6 +62,6 @@ func madCodeToClassification(code string) string {
 	case "M3", "M4":
 		return "block"
 	default:
-		return "benign"
+		return "error"
 	}
 }

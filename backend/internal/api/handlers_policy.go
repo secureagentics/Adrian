@@ -10,20 +10,22 @@ import (
 )
 
 type policyResponse struct {
-	Mode      string `json:"mode"`
-	PolicyM0  bool   `json:"policy_m0"`
-	PolicyM2  bool   `json:"policy_m2"`
-	PolicyM3  bool   `json:"policy_m3"`
-	PolicyM4  bool   `json:"policy_m4"`
-	UpdatedAt string `json:"updated_at"`
+	Mode                        string `json:"mode"`
+	PolicyM0                    bool   `json:"policy_m0"`
+	PolicyM2                    bool   `json:"policy_m2"`
+	PolicyM3                    bool   `json:"policy_m3"`
+	PolicyM4                    bool   `json:"policy_m4"`
+	FailClosedOnClassifierError bool   `json:"fail_closed_on_classifier_error"`
+	UpdatedAt                   string `json:"updated_at"`
 }
 
 type policyPatchRequest struct {
-	Mode     *string `json:"mode"`
-	PolicyM0 *bool   `json:"policy_m0"`
-	PolicyM2 *bool   `json:"policy_m2"`
-	PolicyM3 *bool   `json:"policy_m3"`
-	PolicyM4 *bool   `json:"policy_m4"`
+	Mode                        *string `json:"mode"`
+	PolicyM0                    *bool   `json:"policy_m0"`
+	PolicyM2                    *bool   `json:"policy_m2"`
+	PolicyM3                    *bool   `json:"policy_m3"`
+	PolicyM4                    *bool   `json:"policy_m4"`
+	FailClosedOnClassifierError *bool   `json:"fail_closed_on_classifier_error"`
 }
 
 func (s *Server) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +49,12 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	patch := &store.PolicyPatch{
-		Mode:     req.Mode,
-		PolicyM0: req.PolicyM0,
-		PolicyM2: req.PolicyM2,
-		PolicyM3: req.PolicyM3,
-		PolicyM4: req.PolicyM4,
+		Mode:                        req.Mode,
+		PolicyM0:                    req.PolicyM0,
+		PolicyM2:                    req.PolicyM2,
+		PolicyM3:                    req.PolicyM3,
+		PolicyM4:                    req.PolicyM4,
+		FailClosedOnClassifierError: req.FailClosedOnClassifierError,
 	}
 	if err := s.store.UpdatePolicy(r.Context(), patch); err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
@@ -80,6 +83,9 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	if req.PolicyM4 != nil {
 		details["policy_m4"] = *req.PolicyM4
 	}
+	if req.FailClosedOnClassifierError != nil {
+		details["fail_closed_on_classifier_error"] = *req.FailClosedOnClassifierError
+	}
 	writeAuditLog(r.Context(), s.store, userID(r), "policy_updated", "policies", details)
 
 	writeJSON(w, http.StatusOK, policyResponseFromStore(pol))
@@ -87,12 +93,13 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 
 func policyResponseFromStore(p *store.Policy) policyResponse {
 	return policyResponse{
-		Mode:      p.Mode,
-		PolicyM0:  p.PolicyM0,
-		PolicyM2:  p.PolicyM2,
-		PolicyM3:  p.PolicyM3,
-		PolicyM4:  p.PolicyM4,
-		UpdatedAt: p.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		Mode:                        p.Mode,
+		PolicyM0:                    p.PolicyM0,
+		PolicyM2:                    p.PolicyM2,
+		PolicyM3:                    p.PolicyM3,
+		PolicyM4:                    p.PolicyM4,
+		FailClosedOnClassifierError: p.FailClosedOnClassifierError,
+		UpdatedAt:                   p.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 

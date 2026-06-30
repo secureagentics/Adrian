@@ -27,11 +27,23 @@ type eventResponse struct {
 	CreatedAt      string          `json:"created_at"`
 }
 
+type eventListItemResponse struct {
+	ID             string           `json:"id"`
+	SessionID      string           `json:"session_id"`
+	AgentID        string           `json:"agent_id"`
+	AgentName      string           `json:"agent_name"`
+	AgentProfileID *string          `json:"agent_profile_id"`
+	EventType      string           `json:"event_type"`
+	RunID          string           `json:"run_id"`
+	CreatedAt      string           `json:"created_at"`
+	Verdict        *timelineVerdict `json:"verdict,omitempty"`
+}
+
 type eventListResponse struct {
-	Events  []eventResponse `json:"events"`
-	Total   int             `json:"total"`
-	Page    int             `json:"page"`
-	PerPage int             `json:"per_page"`
+	Events  []eventListItemResponse `json:"events"`
+	Total   int                     `json:"total"`
+	Page    int                     `json:"page"`
+	PerPage int                     `json:"per_page"`
 }
 
 type eventDetailResponse struct {
@@ -43,6 +55,7 @@ type timelineVerdict struct {
 	ID             string `json:"id"`
 	MADCode        string `json:"mad_code"`
 	Classification string `json:"classification"`
+	VerdictStatus  string `json:"verdict_status"`
 }
 
 type timelineEntry struct {
@@ -87,13 +100,13 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := eventListResponse{
-		Events:  make([]eventResponse, 0, len(rows)),
+		Events:  make([]eventListItemResponse, 0, len(rows)),
 		Total:   total,
 		Page:    pg.Page,
 		PerPage: pg.PerPage,
 	}
 	for _, row := range rows {
-		resp.Events = append(resp.Events, eventToResponse(row))
+		resp.Events = append(resp.Events, eventToListItemResponse(row))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -147,6 +160,7 @@ func (s *Server) handleSessionTimeline(w http.ResponseWriter, r *http.Request) {
 				ID:             row.VerdictID,
 				MADCode:        row.MADCode,
 				Classification: row.Classification,
+				VerdictStatus:  row.VerdictStatus,
 			}
 		}
 		resp.Entries = append(resp.Entries, entry)
@@ -154,7 +168,7 @@ func (s *Server) handleSessionTimeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func eventToResponse(r *store.EventListRow) eventResponse {
+func eventToResponse(r *store.EventDetailRow) eventResponse {
 	resp := eventResponse{
 		ID:             r.ID,
 		SessionID:      r.SessionID,
@@ -169,6 +183,27 @@ func eventToResponse(r *store.EventListRow) eventResponse {
 	}
 	if len(resp.Payload) == 0 {
 		resp.Payload = json.RawMessage("null")
+	}
+	return resp
+}
+
+func eventToListItemResponse(r *store.EventListRow) eventListItemResponse {
+	resp := eventListItemResponse{
+		ID:             r.ID,
+		SessionID:      r.SessionID,
+		AgentID:        r.AgentID,
+		AgentName:      r.AgentName,
+		AgentProfileID: r.AgentProfileID,
+		EventType:      r.EventType,
+		RunID:          r.RunID,
+		CreatedAt:      r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+	if r.VerdictID != "" {
+		resp.Verdict = &timelineVerdict{
+			ID:             r.VerdictID,
+			MADCode:        r.MADCode,
+			Classification: r.Classification,
+		}
 	}
 	return resp
 }

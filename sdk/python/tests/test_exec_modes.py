@@ -61,7 +61,7 @@ def _cleanup() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
 
 
 def _stub_tool(captured: list[str]) -> Any:  # noqa: ANN401
-    def _impl(x: str) -> str:
+    async def _impl(x: str) -> str:
         """Stub tool."""
         captured.append(x)
 
