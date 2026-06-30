@@ -144,10 +144,16 @@ class TestWaitForToolVerdict:
 
 class TestToolNodePatchBlocking:
     async def test_in_scope_block_verdict_halts_tool(self, tmp_path: Path) -> None:
-        """MODE_BLOCK + policy_m4=true + mad_code='M4_a' → halt with synthetic ToolMessage."""
+        """MODE_BLOCK + policy_m4=true + mad_code='M4_a' → BaseTool.ainvoke gate blocks.
 
-        def _real_tool(x: str) -> str:
-            """Real tool stub for block-mode tests."""
+        The verdict gate lives on BaseTool (the universal layer), not
+        ToolNode.ainvoke. Uses an async tool so BaseTool.ainvoke (not
+        BaseTool.invoke) is the entry point - matching the production
+        path for create_react_agent with async tools.
+        """
+
+        async def _real_tool(x: str) -> str:
+            """Real async tool stub for block-mode tests."""
             _real_tool.called = True  # type: ignore[attr-defined]
 
             return x
@@ -182,6 +188,7 @@ class TestToolNodePatchBlocking:
 
         result = await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
 
+        # BaseTool.ainvoke gate blocks - tool body does NOT run.
         assert _real_tool.called is False  # type: ignore[attr-defined]
         msgs = result["messages"]
         assert len(msgs) == 1
@@ -192,7 +199,7 @@ class TestToolNodePatchBlocking:
 
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
+        async def _real_tool(x: str) -> str:
             """Real tool stub for block-mode tests."""
             captured.append(x)
 
@@ -228,11 +235,12 @@ class TestToolNodePatchBlocking:
 
         assert captured == ["hi"]
 
-    async def test_timeout_fail_open_runs_tool(self, tmp_path: Path) -> None:
+    async def test_timeout_fail_closed_blocks_tool(self, tmp_path: Path) -> None:
+        """Verdict timeout in MODE_BLOCK → fail-closed (tool does NOT run)."""
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
-            """Real tool stub for block-mode tests."""
+        async def _real_tool(x: str) -> str:
+            """Real async tool stub for block-mode tests."""
             captured.append(x)
 
             return x
@@ -250,7 +258,7 @@ class TestToolNodePatchBlocking:
         _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
         ws._connected.set()
         ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
-        # No pending future → wait_for_verdict times out → fail-open.
+        # No pending future → wait_for_verdict times out → fail-closed (MODE_BLOCK).
 
         tool_node = ToolNode([_real_tool])
         ai = AIMessage(
@@ -261,7 +269,8 @@ class TestToolNodePatchBlocking:
 
         await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
 
-        assert captured == ["hi"]
+        # Fail-closed: tool should NOT have run.
+        assert captured == []
 
     async def test_timeout_fail_closed_blocks_tool(self, tmp_path: Path) -> None:
         captured: list[str] = []
@@ -438,7 +447,7 @@ class TestModeAlert:
 
         captured: list[str] = []
 
-        def _real_tool(x: str) -> str:
+        async def _real_tool(x: str) -> str:
             """Real tool stub for block-mode tests."""
             captured.append(x)
 
@@ -469,3 +478,251 @@ class TestModeAlert:
 
         assert captured == ["hi"]
         assert not ws._pending_verdicts
+
+
+class TestSyncToolNodeBlocking:
+    """Regression: sync (``def``) tools dispatched by ToolNode / create_react_agent.
+
+    The tests in ``TestToolNodePatchBlocking`` use ``async def`` tools, so
+    they exercise ``BaseTool.ainvoke`` (the async gate). A sync ``def`` tool
+    takes a different path: ``StructuredTool.ainvoke`` has no coroutine, so it
+    runs ``self.invoke`` via ``run_in_executor`` on a worker thread. The gate
+    therefore lands in ``BaseTool.invoke`` -> ``_sync_gate`` on a thread that
+    is not running an event loop, and ``_sync_gate`` must bridge the gate onto
+    the WS loop. A regression here (e.g. probing the thread with
+    ``get_event_loop()``, which raises on a worker thread) silently skips the
+    gate and lets block-level tool calls run ungated under create_react_agent.
+    """
+
+    @staticmethod
+    def _prep(ws: WebSocketClient, policy_m4: bool, mad_code: str) -> None:
+        """Drive a logged-in MODE_BLOCK state with a pre-resolved verdict.
+
+        ``ws._loop`` points at the test loop so the worker-thread bridge in
+        ``_sync_gate`` has a running target, mirroring production where the
+        WS loop lives on its own thread, separate from the Pregel worker.
+        """
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=policy_m4)
+        ws._connected.set()
+        ws._loop = asyncio.get_running_loop()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(pb.Verdict(event_id="llm-evt", mad_code=mad_code, policy=policy))
+
+    async def test_sync_tool_block_verdict_halts(self, tmp_path: Path) -> None:
+        """MODE_BLOCK + policy_m4 + M4 verdict: sync tool body must NOT run."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        self._prep(ws, policy_m4=True, mad_code="M4_a")
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        # Sync tool body must NOT run; a BLOCKED ToolMessage is returned.
+        assert captured == []
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert "BLOCKED" in msgs[0].content
+
+    async def test_sync_tool_out_of_scope_runs(self, tmp_path: Path) -> None:
+        """MODE_BLOCK, M2 verdict with policy_m2 false: sync tool runs (no over-block)."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        self._prep(ws, policy_m4=True, mad_code="M2")  # m2 not in policy scope
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == ["hi"]
+
+    @staticmethod
+    def _prep_hitl(
+        ws: WebSocketClient,
+    ) -> tuple[pb.PolicySnapshot, asyncio.Future[pb.Verdict]]:
+        """MODE_HITL, logged in, with an UNRESOLVED pending verdict (held).
+
+        Returns the policy and the pending future so the test can resolve it
+        later, standing in for a human approve/reject.
+        """
+        policy = _apply_mode(ws, pb.MODE_HITL, policy_m4=True)
+        ws._connected.set()
+        ws._loop = asyncio.get_running_loop()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        fut = ws.register_pending("llm-evt")
+        return policy, fut
+
+    @staticmethod
+    def _tool_call_state() -> dict[str, Any]:
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        return {"messages": [ai]}
+
+    async def test_sync_tool_hitl_holds_until_human_then_blocks_on_reject(
+        self, tmp_path: Path
+    ) -> None:
+        """MODE_HITL: a sync tool is HELD indefinitely, never fail-opens.
+
+        The gate must wait past ``block_timeout`` (the bounded MODE_BLOCK wait
+        does not apply to HITL); a human reject then halts the tool. Regression
+        for the worker-thread bridge fail-opening a HITL hold once a finite
+        ``future.result`` timeout elapsed.
+        """
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=0.5,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy, fut = self._prep_hitl(ws)
+
+        task = asyncio.ensure_future(
+            ToolNode([_real_tool]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
+                self._tool_call_state(), config=_runtime_config()
+            )
+        )
+
+        # Held well past block_timeout: neither run nor returned, waiting for a human.
+        await asyncio.sleep(1.5)
+        assert not task.done()
+        assert captured == []
+
+        # Human rejects -> HITL verdict with continue_execution=False.
+        verdict = pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
+        verdict.hitl.continue_execution = False
+        fut.set_result(verdict)
+
+        result = await asyncio.wait_for(task, timeout=2.0)
+        assert captured == []
+        msgs = result["messages"]
+        assert len(msgs) == 1
+        assert "BLOCKED" in msgs[0].content
+
+    async def test_sync_tool_hitl_resumes_on_approve(self, tmp_path: Path) -> None:
+        """MODE_HITL: after a human approve (continue_execution=True), the sync tool runs."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=0.5,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy, fut = self._prep_hitl(ws)
+
+        task = asyncio.ensure_future(
+            ToolNode([_real_tool]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
+                self._tool_call_state(), config=_runtime_config()
+            )
+        )
+
+        await asyncio.sleep(0.3)
+        assert not task.done()
+        assert captured == []
+
+        verdict = pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
+        verdict.hitl.continue_execution = True
+        fut.set_result(verdict)
+
+        await asyncio.wait_for(task, timeout=2.0)
+        assert captured == ["hi"]
+
+    async def test_sync_tool_block_timeout_fails_closed(self, tmp_path: Path) -> None:
+        """MODE_BLOCK: no verdict before block_timeout -> sync tool blocked (fail-closed)."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=0.1,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._connected.set()
+        ws._loop = asyncio.get_running_loop()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        ws.register_pending("llm-evt")  # never resolved -> verdict times out
+
+        result = await ToolNode([_real_tool]).ainvoke(  # pyright: ignore[reportUnknownMemberType]
+            self._tool_call_state(), config=_runtime_config()
+        )
+
+        assert captured == []
+        assert "BLOCKED" in result["messages"][0].content

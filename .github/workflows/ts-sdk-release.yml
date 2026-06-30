@@ -1,0 +1,60 @@
+# Publish the TypeScript SDK (@secureagentics/adrian + @secureagentics/adrian-openai) to npm on a `ts-sdk-v*` tag.
+name: Release TypeScript SDK to npm
+
+on:
+  push:
+    tags:
+      - "ts-sdk-v*"
+
+defaults:
+  run:
+    working-directory: sdk/typescript
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+      - name: Tag matches package versions
+        run: |
+          tag="${GITHUB_REF_NAME#ts-sdk-v}"
+          core="$(node -p "require('./packages/core/package.json').version")"
+          oai="$(node -p "require('./packages/openai/package.json').version")"
+          built="$(node -p "require('./packages/core/dist/index.cjs').version")"
+          echo "tag=$tag core=$core openai=$oai built=$built"
+          if [ "$tag" != "$core" ] || [ "$tag" != "$oai" ] || [ "$tag" != "$built" ]; then
+            echo "::error::tag ($tag) must match core ($core), openai ($oai), and built runtime version ($built)"
+            exit 1
+          fi
+      - name: Publish @secureagentics/adrian
+        run: npm publish -w packages/core --provenance --access public
+      - name: Publish @secureagentics/adrian-openai
+        run: npm publish -w packages/openai --provenance --access public

@@ -7,7 +7,7 @@ import { AlertExplanation } from '@/components/alert-explanation'
 import { Badge } from '@/components/badge'
 import { JsonBlock } from '@/components/json-block'
 import { Pagination } from '@/components/pagination'
-import { isClassifierErrorVerdict, timeAgo, verdictBadgeColor, verdictBadgeLabel } from '@/lib/utils'
+import { isClassifierErrorVerdict, madBadgeColor, timeAgo, verdictBadgeColor, verdictBadgeLabel } from '@/lib/utils'
 import { TimeRange, sinceForRange, TimeRangeSelect } from '@/components/time-range'
 
 type EventRow = {
@@ -20,19 +20,25 @@ type EventRow = {
   agent_name: string
   event_type: string
   run_id: string
-  payload: any
   created_at: string
+  verdict?: EventVerdict
 }
 
-type VerdictInfo = {
+type EventVerdict = {
   id: string
   mad_code: string
   classification: string
-  verdict_status: string
+  verdict_status?: string
   reasoning?: string
-  latency_ms?: number
-  created_at: string
-} | null
+  latency_ms?: number | null
+  created_at?: string
+}
+
+type EventDetail = EventRow & {
+  payload: any
+  tokens_used: number
+  verdict?: EventVerdict | null
+}
 
 export default function EventsPage() {
   const [data, setData] = useState<{ events: EventRow[]; total: number }>({ events: [], total: 0 })
@@ -135,6 +141,7 @@ export default function EventsPage() {
                   <th className="px-4 py-2.5 text-[13px] font-medium">Agent</th>
                   <th className="px-4 py-2.5 text-[13px] font-medium">Session</th>
                   <th className="px-4 py-2.5 text-[13px] font-medium">Type</th>
+                  <th className="px-4 py-2.5 text-[13px] font-medium">Severity</th>
                   <th className="px-4 py-2.5 text-[13px] font-medium">Run ID</th>
                 </tr>
               </thead>
@@ -170,17 +177,14 @@ export default function EventsPage() {
 }
 
 function EventRow({ event, open, onToggle }: { event: EventRow; open: boolean; onToggle: () => void }) {
-  const [verdict, setVerdict] = useState<VerdictInfo | undefined>(undefined)
+  const [detail, setDetail] = useState<EventDetail | null | undefined>(undefined)
 
-  // Lazy-load the verdict for this event the first time the row is opened.
-  // The list endpoint doesn't return verdict fields (only the per-event GET
-  // does), so we fetch on demand to keep the list response small.
   useEffect(() => {
-    if (!open || verdict !== undefined) return
-    api<{ data: { verdict: VerdictInfo } }>(`/api/events/${event.id}`)
-      .then(r => setVerdict(r.data?.verdict ?? null))
-      .catch(() => setVerdict(null))
-  }, [open, event.id, verdict])
+    if (!open || detail !== undefined) return
+    api<{ data: EventDetail }>(`/api/events/${event.id}`)
+      .then(r => setDetail(r.data ?? null))
+      .catch(() => setDetail(null))
+  }, [open, event.id, detail])
 
   return (
     <>
@@ -203,14 +207,17 @@ function EventRow({ event, open, onToggle }: { event: EventRow; open: boolean; o
         <td className="px-4 py-2.5">
           <Badge label={event.event_type?.replace('EVENT_TYPE_', '')} className="bg-surface-overlay text-ink-3" />
         </td>
+        <td className="px-4 py-2.5">
+          <SeverityBadge madCode={event.verdict?.mad_code} />
+        </td>
         <td className="px-4 py-2.5 font-mono text-xs text-ink-3">{event.run_id?.slice(0, 8)}</td>
       </tr>
 
       {open && (
         <tr className="border-b border-surface-border/50 bg-surface-overlay/20">
           <td />
-          <td colSpan={5} className="px-4 py-4">
-            <ExpandedDetail event={event} verdict={verdict} />
+          <td colSpan={6} className="px-4 py-4">
+            <ExpandedDetail event={event} detail={detail} />
           </td>
         </tr>
       )}
@@ -219,14 +226,14 @@ function EventRow({ event, open, onToggle }: { event: EventRow; open: boolean; o
 }
 
 function EventCard({ event, open, onToggle }: { event: EventRow; open: boolean; onToggle: () => void }) {
-  const [verdict, setVerdict] = useState<VerdictInfo | undefined>(undefined)
+  const [detail, setDetail] = useState<EventDetail | null | undefined>(undefined)
 
   useEffect(() => {
-    if (!open || verdict !== undefined) return
-    api<{ data: { verdict: VerdictInfo } }>(`/api/events/${event.id}`)
-      .then(r => setVerdict(r.data?.verdict ?? null))
-      .catch(() => setVerdict(null))
-  }, [open, event.id, verdict])
+    if (!open || detail !== undefined) return
+    api<{ data: EventDetail }>(`/api/events/${event.id}`)
+      .then(r => setDetail(r.data ?? null))
+      .catch(() => setDetail(null))
+  }, [open, event.id, detail])
 
   return (
     <div className="bg-surface-raised border border-surface-border rounded-lg overflow-hidden">
@@ -239,6 +246,7 @@ function EventCard({ event, open, onToggle }: { event: EventRow; open: boolean; 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Badge label={event.event_type?.replace('EVENT_TYPE_', '')} className="bg-surface-overlay text-ink-3" />
+            <SeverityBadge madCode={event.verdict?.mad_code} />
             <span className="text-xs text-ink-3 font-mono ml-auto">{timeAgo(event.created_at)}</span>
           </div>
           <div className="text-sm text-ink/80 truncate">
@@ -252,25 +260,42 @@ function EventCard({ event, open, onToggle }: { event: EventRow; open: boolean; 
 
       {open && (
         <div className="border-t border-surface-border bg-surface-overlay/20 px-4 py-3">
-          <ExpandedDetail event={event} verdict={verdict} />
+          <ExpandedDetail event={event} detail={detail} />
         </div>
       )}
     </div>
   )
 }
 
-function ExpandedDetail({ event, verdict }: { event: EventRow; verdict: VerdictInfo | undefined }) {
+function SeverityBadge({ madCode }: { madCode?: string }) {
+  const label = severityLabel(madCode)
+  return (
+    <Badge label={label} className={`${madBadgeColor(madCode || '')}`} />
+  )
+}
+
+function severityLabel(madCode?: string): string {
+  if (!madCode) return 'Unknown'
+  if (madCode.startsWith('M4')) return 'Critical'
+  if (madCode.startsWith('M3')) return 'High'
+  if (madCode.startsWith('M2')) return 'Medium'
+  if (madCode.startsWith('M1')) return 'Low'
+  if (madCode.startsWith('M0')) return 'Safe'
+  return 'Unknown'
+}
+
+function ExpandedDetail({ event, detail }: { event: EventRow; detail: EventDetail | null | undefined }) {
+  const verdict = detail?.verdict ?? event.verdict
+
   return (
     <div className="space-y-4">
       <DetailBlock label="Verdict">
-        {verdict === undefined ? (
-          <p className="text-xs text-ink-3">Loading verdict...</p>
-        ) : verdict === null ? (
+        {!verdict ? (
           <p className="text-xs text-ink-3">No verdict recorded for this event yet.</p>
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
             <Badge label={verdictBadgeLabel(verdict)} className={verdictBadgeColor(verdict)} />
-            {verdict.latency_ms !== undefined && (
+            {typeof verdict.latency_ms === 'number' && (
               <span className="font-mono text-ink-3">
                 Latency: <span className="text-ink">{verdict.latency_ms}ms</span>
               </span>
@@ -296,7 +321,13 @@ function ExpandedDetail({ event, verdict }: { event: EventRow; verdict: VerdictI
       </DetailBlock>
 
       <DetailBlock label="Payload">
-        <JsonBlock value={event.payload} />
+        {detail === undefined ? (
+          <p className="text-xs text-ink-3">Loading event details...</p>
+        ) : detail === null ? (
+          <p className="text-xs text-ink-3">Unable to load event details.</p>
+        ) : (
+          <JsonBlock value={detail.payload} />
+        )}
       </DetailBlock>
     </div>
   )

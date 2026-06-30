@@ -471,6 +471,17 @@ func verdictStatusProto(status string) pb.VerdictStatus {
 	}
 }
 
+func verdictStatusProto(status string) pb.VerdictStatus {
+	switch status {
+	case "error":
+		return pb.VerdictStatus_VERDICT_STATUS_ERROR
+	case "ok":
+		return pb.VerdictStatus_VERDICT_STATUS_OK
+	default:
+		return pb.VerdictStatus_VERDICT_STATUS_UNSPECIFIED
+	}
+}
+
 func handleMcpInventory(ctx context.Context, sess *session, st *store.Store, inv *pb.McpInventory) error {
 	if inv == nil {
 		return nil

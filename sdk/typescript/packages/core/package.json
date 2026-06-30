@@ -1,0 +1,68 @@
+{
+  "name": "@secureagentics/adrian",
+  "version": "1.0.0",
+  "description": "Core SDK for Adrian multi-agent security monitoring in Node.js.",
+  "license": "Apache-2.0",
+  "author": "Secure Agentics <support@secureagentics.ai>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/secureagentics/Adrian.git",
+    "directory": "sdk/typescript/packages/core"
+  },
+  "homepage": "https://github.com/secureagentics/Adrian/tree/main/sdk/typescript/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/secureagentics/Adrian/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./capture": {
+      "types": "./dist/capture/index.d.ts",
+      "import": "./dist/capture/index.js",
+      "require": "./dist/capture/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "security",
+    "monitoring",
+    "observability",
+    "llm",
+    "multi-agent",
+    "prompt-injection"
+  ],
+  "dependencies": {
+    "protobufjs": "^8.4.2",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}

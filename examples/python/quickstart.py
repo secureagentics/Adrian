@@ -20,7 +20,7 @@ Run from the repo root with the bundled SDK installed:
     source .venv/bin/activate
     uv pip install langchain-openai
     ADRIAN_API_KEY=adr_local_... OPENAI_API_KEY=sk-... \\
-        python examples/quickstart.py
+        python examples/python/quickstart.py
 """
 from __future__ import annotations
 

@@ -52,6 +52,8 @@ _QUOTA_RECONNECT_DELAY = 60.0
 _MAX_RUN_ID_MAP = 1024
 # Cap on in-flight tool_call_id → event_id mappings (block-mode correlation).
 _MAX_TOOL_CALL_MAP = 1024
+# Cap on resolved verdict futures kept for late-waiter replay.
+_MAX_PENDING_VERDICTS = 512
 
 _DEFAULT_REPLAY_BUFFER_FRAMES = 1000
 
@@ -255,6 +257,10 @@ class WebSocketClient:
         # Set by close() so _handle_disconnect knows not to spawn a reconnect
         # during a graceful shutdown.
         self._closing = False
+        # Event loop running the WebSocket tasks. Captured on first
+        # connect so _sync_gate can bridge async waits from worker
+        # threads via run_coroutine_threadsafe.
+        self._loop: asyncio.AbstractEventLoop | None = None
         # Futures awaited by the patched ToolNode.ainvoke when the
         # active mode requires a wait (BLOCK or HITL).  Each resolves
         # with the matching ``Verdict`` proto.  Futures survive a
@@ -450,6 +456,12 @@ class WebSocketClient:
         if self._connect_task is None or self._connect_task.done():
             self._connect_task = loop.create_task(self.connect())
 
+    def _ensure_connect_task(self) -> None:
+        """Start the initial/reconnect task if none is currently running."""
+        if self._connect_task is None or self._connect_task.done():
+            loop = asyncio.get_running_loop()
+            self._connect_task = loop.create_task(self.connect())
+
     async def connect(self) -> None:
         """Establish the WebSocket with exponential-backoff retry.
 
@@ -481,6 +493,7 @@ class WebSocketClient:
 
         backoff = _INITIAL_BACKOFF
         loop = asyncio.get_running_loop()
+        self._loop = loop
 
         headers: dict[str, str] = {}
 
@@ -500,7 +513,6 @@ class WebSocketClient:
 
                 disconnected_at = self._disconnected_at
                 is_reconnect = disconnected_at is not None
-
                 if disconnected_at is not None:
                     downtime = time.monotonic() - disconnected_at
                     self._disconnected_at = None
@@ -584,6 +596,8 @@ class WebSocketClient:
 
         if not self._connected.is_set() or self._replaying:
             self._buffer_frame(frame_bytes)
+            if not self._replaying:
+                self._ensure_connect_task()
             reason = "disconnected" if not self._connected.is_set() else "replaying"
             logger.info(
                 "buffered for replay (session_id=%s, kind=%s, "
@@ -600,6 +614,8 @@ class WebSocketClient:
 
         if ws is None:
             self._buffer_frame(frame_bytes)
+            if not self._connected.is_set():
+                self._ensure_connect_task()
 
             return
 
@@ -889,10 +905,7 @@ class WebSocketClient:
         if self._closing:
             return
 
-        loop = asyncio.get_running_loop()
-
-        if self._connect_task is None or self._connect_task.done():
-            self._connect_task = loop.create_task(self.connect())
+        self._ensure_connect_task()
 
     async def _fire_on_disconnect(self, reason: str) -> None:
         """Invoke the on_disconnect callback, catching any exception."""
@@ -944,6 +957,18 @@ class WebSocketClient:
 
         return fut
 
+    def _evict_resolved_verdicts(self) -> None:
+        """Remove oldest resolved futures when the dict exceeds the cap."""
+        while len(self._pending_verdicts) > _MAX_PENDING_VERDICTS:
+            # Evict the oldest entry (dict preserves insertion order).
+            oldest_id = next(iter(self._pending_verdicts))
+            oldest_fut = self._pending_verdicts[oldest_id]
+            if oldest_fut.done():
+                del self._pending_verdicts[oldest_id]
+            else:
+                # Don't evict an in-flight future; stop evicting.
+                break
+
     async def wait_for_verdict(
         self,
         event_id: str,
@@ -956,25 +981,30 @@ class WebSocketClient:
         ``None`` for ``MODE_HITL`` (wait indefinitely).  Returns the
         verdict, or ``None`` on timeout.
 
-        Cleans up the ``_pending_verdicts`` entry on either path:
-        ``_on_verdict_frame`` only resolves the future, the dict
-        ownership belongs here so a late ``register_pending`` after the
-        verdict has already arrived can still find the resolved future.
+        Resolved futures are kept in ``_pending_verdicts`` so a second
+        waiter on the same event_id (e.g. BaseTool.ainvoke firing after
+        ToolNode.ainvoke already consumed the verdict) finds the already-
+        resolved future and returns instantly instead of timing out.
+        Timed-out (unconsumed) futures are removed immediately; resolved
+        futures are evicted when the dict exceeds ``_MAX_PENDING_VERDICTS``.
         """
         fut = self.register_pending(event_id)
 
         try:
-            return await asyncio.wait_for(fut, timeout=timeout)
+            result = await asyncio.wait_for(fut, timeout=timeout)
+            # Keep resolved future in dict for late waiters; cap size.
+            self._evict_resolved_verdicts()
+            return result
         except TimeoutError:
             logger.warning(
                 "Verdict timeout for event_id=%s after %ss",
                 event_id,
                 timeout,
             )
-
-            return None
-        finally:
+            # Timed-out future is useless - remove so a retry can
+            # register a fresh one.
             self._pending_verdicts.pop(event_id, None)
+            return None
 
     async def wait_for_tool_verdict(
         self,
