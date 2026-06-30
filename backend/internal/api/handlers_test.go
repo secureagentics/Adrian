@@ -1048,6 +1048,28 @@ func TestEventsMinMADFilterUsesLatestVerdict(t *testing.T) {
 	if int(data["total"].(float64)) != 2 {
 		t.Errorf("no-filter total = %v, want 2", data["total"])
 	}
+	events = data["events"].([]any)
+	verdictsByEvent := map[string]string{}
+	for _, item := range events {
+		event := item.(map[string]any)
+		if _, ok := event["payload"]; ok {
+			t.Fatalf("list event %v should not include payload", event["id"])
+		}
+		if _, ok := event["tokens_used"]; ok {
+			t.Fatalf("list event %v should not include tokens_used", event["id"])
+		}
+		verdict, ok := event["verdict"].(map[string]any)
+		if !ok {
+			t.Fatalf("event %v should include latest verdict", event["id"])
+		}
+		verdictsByEvent[event["id"].(string)] = verdict["mad_code"].(string)
+	}
+	if verdictsByEvent[eA] != "M0" {
+		t.Errorf("event A latest verdict = %v, want M0", verdictsByEvent[eA])
+	}
+	if verdictsByEvent[eB] != "M3.a" {
+		t.Errorf("event B latest verdict = %v, want M3.a", verdictsByEvent[eB])
+	}
 }
 
 // -----------------------------------------------------------------
