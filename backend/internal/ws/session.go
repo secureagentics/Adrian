@@ -15,6 +15,8 @@ type session struct {
 	llmProvider string
 	llmModel    string
 	loggedIn    bool
+
+	warnedClassifierErrorCompatibility bool
 }
 
 // agentProfileID returns the bound agent_profile_id (or nil if the

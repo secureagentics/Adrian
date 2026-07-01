@@ -35,6 +35,7 @@ def _apply_mode(
     policy_m2: bool = False,
     policy_m3: bool = False,
     policy_m4: bool = False,
+    fail_closed_on_classifier_error: bool = False,
 ) -> pb.PolicySnapshot:
     """Drive the mode/policy state as if a LoginAck had arrived."""
     policy = pb.PolicySnapshot(
@@ -43,6 +44,7 @@ def _apply_mode(
         policy_m2=policy_m2,
         policy_m3=policy_m3,
         policy_m4=policy_m4,
+        fail_closed_on_classifier_error=fail_closed_on_classifier_error,
     )
     ws._mode = mode
     ws._policy = policy
@@ -269,6 +271,174 @@ class TestToolNodePatchBlocking:
 
         # Fail-closed: tool should NOT have run.
         assert captured == []
+
+    async def test_timeout_fail_closed_blocks_tool(self, tmp_path: Path) -> None:
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for block-mode tests."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=0.05,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        _apply_mode(
+            ws,
+            pb.MODE_BLOCK,
+            policy_m4=True,
+            fail_closed_on_classifier_error=True,
+        )
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == []
+        assert "BLOCKED" in result["messages"][0].content
+
+    async def test_error_verdict_fail_open_runs_tool(self, tmp_path: Path) -> None:
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for block-mode tests."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy = _apply_mode(ws, pb.MODE_BLOCK, fail_closed_on_classifier_error=False)
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(
+            pb.Verdict(
+                event_id="llm-evt",
+                status=pb.VERDICT_STATUS_ERROR,
+                mad_code="",
+                policy=policy,
+            ),
+        )
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == ["hi"]
+
+    async def test_error_verdict_fail_closed_blocks_tool(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for block-mode tests."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=1.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy = _apply_mode(ws, pb.MODE_BLOCK, fail_closed_on_classifier_error=True)
+        ws._connected.set()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(
+            pb.Verdict(
+                event_id="llm-evt",
+                status=pb.VERDICT_STATUS_ERROR,
+                mad_code="",
+                policy=policy,
+            ),
+        )
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == []
+        assert "BLOCKED" in result["messages"][0].content
+
+    async def test_unknown_tool_call_stays_fail_open_when_fail_closed(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Real tool stub for block-mode tests."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=0.05,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        _apply_mode(ws, pb.MODE_BLOCK, fail_closed_on_classifier_error=True)
+        ws._connected.set()
+
+        tool_node = ToolNode([_real_tool])
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        await tool_node.ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == ["hi"]
 
 
 class TestModeAlert:

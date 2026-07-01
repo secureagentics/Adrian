@@ -141,6 +141,7 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
             run_id=record.run_id,
             parent_run_id=record.parent_run_id,
             policy=verdict.policy,
+            status=verdict.status,
             mad_code=verdict.mad_code,
             hitl=hitl,
         )

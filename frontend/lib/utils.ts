@@ -13,6 +13,13 @@ const PILL_NEUTRAL = 'bg-surface-raised text-ink-3 border-surface-border'
 const PILL_SOFT    = 'bg-surface-overlay text-ink-2 border-surface-border'
 const PILL_MID     = 'bg-ink-2 text-surface-raised border-ink-2'
 const PILL_STRONG  = 'bg-ink text-surface-raised border-ink'
+const PILL_ERROR   = 'bg-danger/20 text-danger border-danger/40'
+
+export type VerdictDisplayInput = {
+  mad_code?: string
+  classification?: string
+  verdict_status?: string
+} | null | undefined
 
 export function madBadgeColor(code: string): string {
   if (!code) return PILL_NEUTRAL
@@ -20,6 +27,21 @@ export function madBadgeColor(code: string): string {
   if (code.startsWith('M3')) return PILL_MID
   if (code.startsWith('M2')) return PILL_SOFT
   return PILL_NEUTRAL
+}
+
+export function isClassifierErrorVerdict(verdict: VerdictDisplayInput): boolean {
+  if (!verdict) return false
+  return verdict.verdict_status === 'error' || (verdict.classification === 'error' && !verdict.mad_code)
+}
+
+export function verdictBadgeLabel(verdict: VerdictDisplayInput): string {
+  if (isClassifierErrorVerdict(verdict)) return 'Classifier error'
+  return verdict?.mad_code || 'No MAD code'
+}
+
+export function verdictBadgeColor(verdict: VerdictDisplayInput): string {
+  if (isClassifierErrorVerdict(verdict)) return PILL_ERROR
+  return madBadgeColor(verdict?.mad_code || '')
 }
 
 export function classificationBadgeColor(cls: string): string {

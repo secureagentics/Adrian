@@ -76,6 +76,9 @@ type EventFilters struct {
 	// Lets the dashboard surface flagged events that didn't trigger a
 	// HITL hold (post-execution tool pairs, tool_call-less LLM pairs).
 	MinMAD string
+	// VerdictStatus restricts to events whose latest verdict has this status.
+	// Accepts "ok" or "error"; empty = no filter.
+	VerdictStatus string
 }
 
 // InsertEvent persists one paired event and reports whether a new row
@@ -264,6 +267,13 @@ func eventsWhere(f EventFilters) (string, []any) {
 		for _, t := range tiers {
 			args = append(args, t)
 		}
+	}
+	if f.VerdictStatus != "" {
+		parts = append(parts, "EXISTS (SELECT 1 FROM verdicts v "+
+			"WHERE v.event_id = e.id "+
+			"AND v.created_at = (SELECT max(v2.created_at) FROM verdicts v2 WHERE v2.event_id = e.id) "+
+			"AND v.verdict_status = ?)")
+		args = append(args, f.VerdictStatus)
 	}
 	return strings.Join(parts, " AND "), args
 }

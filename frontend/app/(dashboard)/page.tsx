@@ -8,6 +8,7 @@ import { madBadgeColor } from '@/lib/utils'
 type Overview = {
   total_events: number
   flagged_verdicts: number
+  classifier_errors: number
   pending_reviews: number
   active_agents: number
   verdicts_by_mad: Record<string, number>
@@ -49,9 +50,10 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         <StatCard label="Events" value={overview?.total_events} href="/events" />
         <StatCard label="Flagged verdicts" value={overview?.flagged_verdicts} href="/events" tone="warn" />
+        <StatCard label="Classifier errors" value={overview?.classifier_errors} href="/events?verdict_status=error" tone="danger" />
         <StatCard label="Pending reviews" value={overview?.pending_reviews} href="/reviews" tone="danger" />
         <StatCard label="Active agents" value={overview?.active_agents} href="/agents" />
       </div>
@@ -99,19 +101,21 @@ export default function OverviewPage() {
           <h3 className="text-[13px] font-medium text-ink-3 mb-3">Verdict mix</h3>
           {overview && Object.values(overview.verdicts_by_mad).some(v => v > 0) ? (
             <ul className="space-y-2">
-              {(['M0', 'M2', 'M3', 'M4'] as const).map(family => {
+              {(['M0', 'M2', 'M3', 'M4', 'error'] as const).map(family => {
                 const count = overview.verdicts_by_mad[family] || 0
                 const total = Object.values(overview.verdicts_by_mad).reduce((a, b) => a + b, 0)
                 const pct = total ? (count / total) * 100 : 0
                 return (
                   <li key={family} className="text-xs">
                     <div className="flex items-baseline justify-between mb-1">
-                      <span className={`font-mono ${madBadgeColor(family)} px-1.5 rounded`}>{family}</span>
+                      <span className={`font-mono ${family === 'error' ? 'bg-danger/20 text-danger border-danger/40' : madBadgeColor(family)} px-1.5 rounded`}>
+                        {family === 'error' ? 'Classifier error' : family}
+                      </span>
                       <span className="text-ink-3 font-mono">{count}</span>
                     </div>
                     <div className="h-1 bg-surface rounded-full overflow-hidden">
                       <div
-                        className={family === 'M0' ? 'h-full bg-ink/20' : family === 'M4' ? 'h-full bg-danger/60' : family === 'M3' ? 'h-full bg-warn/60' : 'h-full bg-ink-3/40'}
+                        className={family === 'M0' ? 'h-full bg-ink/20' : family === 'M4' || family === 'error' ? 'h-full bg-danger/60' : family === 'M3' ? 'h-full bg-warn/60' : 'h-full bg-ink-3/40'}
                         style={{ width: `${pct}%` }}
                       />
                     </div>

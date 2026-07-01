@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 
 	"github.com/secureagentics/Adrian/backend/internal/api"
@@ -415,7 +416,7 @@ func TestProfileNameValidation(t *testing.T) {
 func TestStatsOverview(t *testing.T) {
 	srv, db, _, cookie := newTestServerLoggedIn(t)
 
-	// Seed: 3 events on 2 agents, 2 verdicts (one M0, one M3),
+	// Seed: 3 events on 2 agents, 3 verdicts (M0, M3, classifier error),
 	// 1 pending review, 1 agents row with last_seen recent.
 	if _, err := db.Exec(
 		`INSERT INTO agents (id, agent_id, last_seen) VALUES (?, 'a1', datetime('now'))`,
@@ -442,6 +443,13 @@ func TestStatsOverview(t *testing.T) {
 		}
 	}
 	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status)
+		 VALUES (?, ?, 'sess-stats', '', 'error', 'error')`,
+		uuid.NewString(), uuid.NewString(),
+	); err != nil {
+		t.Fatalf("seed error verdict: %v", err)
+	}
+	if _, err := db.Exec(
 		`INSERT INTO hitl_queue (id, event_id, session_id, mad_code) VALUES (?, ?, 'sess-stats', 'M3')`,
 		uuid.NewString(), uuid.NewString(),
 	); err != nil {
@@ -459,6 +467,9 @@ func TestStatsOverview(t *testing.T) {
 	if int(data["flagged_verdicts"].(float64)) != 1 {
 		t.Errorf("flagged_verdicts = %v, want 1 (only M3.b counts)", data["flagged_verdicts"])
 	}
+	if int(data["classifier_errors"].(float64)) != 1 {
+		t.Errorf("classifier_errors = %v, want 1", data["classifier_errors"])
+	}
 	if int(data["pending_reviews"].(float64)) != 1 {
 		t.Errorf("pending_reviews = %v, want 1", data["pending_reviews"])
 	}
@@ -466,8 +477,10 @@ func TestStatsOverview(t *testing.T) {
 		t.Errorf("active_agents = %v, want 1", data["active_agents"])
 	}
 	dist := data["verdicts_by_mad"].(map[string]any)
-	if int(dist["M0"].(float64)) != 1 || int(dist["M3"].(float64)) != 1 {
-		t.Errorf("verdicts_by_mad = %v, want M0=1 M3=1", dist)
+	if int(dist["M0"].(float64)) != 1 ||
+		int(dist["M3"].(float64)) != 1 ||
+		int(dist["error"].(float64)) != 1 {
+		t.Errorf("verdicts_by_mad = %v, want M0=1 M3=1 error=1", dist)
 	}
 }
 
@@ -522,6 +535,9 @@ func TestListVerdictsIncludesStatusAndFiltersError(t *testing.T) {
 	row := verdicts[0].(map[string]any)
 	if row["classification"] != "error" || row["verdict_status"] != "error" {
 		t.Errorf("verdict row = %v, want classification/status error", row)
+	}
+	if row["reasoning"] != "classifier failed" {
+		t.Errorf("reasoning = %v, want classifier failed", row["reasoning"])
 	}
 }
 
@@ -629,6 +645,139 @@ func TestApproveReviewPublishesToSubscriber(t *testing.T) {
 	}
 	if status != "approved" {
 		t.Errorf("hitl_queue.status = %v, want approved", status)
+	}
+}
+
+func TestApproveErrorReviewPublishesErrorStatus(t *testing.T) {
+	srv, db, hub, cookie := newTestServerWithHub(t)
+
+	const sessID = "sess-hitl-error"
+	eventID := uuid.NewString()
+	verdictID := uuid.NewString()
+	queueID := uuid.NewString()
+
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-h', 'llm', 'r1', '{}')`,
+		eventID, sessID,
+	); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status, reasoning)
+		 VALUES (?, ?, ?, '', 'error', 'error', 'classifier failure: boom')`,
+		verdictID, eventID, sessID,
+	); err != nil {
+		t.Fatalf("seed verdict: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO hitl_queue (id, event_id, verdict_id, session_id, mad_code)
+		 VALUES (?, ?, ?, ?, '')`,
+		queueID, eventID, verdictID, sessID,
+	); err != nil {
+		t.Fatalf("seed hitl_queue: %v", err)
+	}
+
+	detailResp := getReq(t, srv, cookie, "/api/reviews/"+queueID)
+	if detailResp.StatusCode != http.StatusOK {
+		t.Fatalf("detail status = %d, want 200", detailResp.StatusCode)
+	}
+	detail := decodeBody(t, detailResp)["data"].(map[string]any)
+	if detail["reasoning"] != "classifier failure: boom" {
+		t.Errorf("detail.reasoning = %v, want classifier failure cause", detail["reasoning"])
+	}
+
+	ch, dereg, err := hub.Register(sessID, "test-owner")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	defer dereg()
+
+	resp := postJSON(t, srv, cookie, "/api/reviews/"+queueID+"/approve", map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	select {
+	case buf := <-ch:
+		var frame pb.ServerFrame
+		if err := proto.Unmarshal(buf, &frame); err != nil {
+			t.Fatalf("unmarshal frame: %v", err)
+		}
+		verdict := frame.GetVerdict()
+		if verdict == nil {
+			t.Fatalf("expected Verdict, got %T", frame.Frame)
+		}
+		if verdict.GetStatus() != pb.VerdictStatus_VERDICT_STATUS_ERROR {
+			t.Fatalf("status = %v, want ERROR", verdict.GetStatus())
+		}
+		if verdict.GetMadCode() != "" {
+			t.Fatalf("mad_code = %q, want empty", verdict.GetMadCode())
+		}
+		if verdict.GetHitl() == nil || !verdict.GetHitl().GetContinueExecution() {
+			t.Fatalf("expected approve to continue execution")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber never received the resolution frame")
+	}
+}
+
+func TestListReviewsFiltersByVerdictStatus(t *testing.T) {
+	srv, db, _, cookie := newTestServerWithHub(t)
+
+	const sessID = "sess-review-filter"
+	okEventID := uuid.NewString()
+	errorEventID := uuid.NewString()
+	okVerdictID := uuid.NewString()
+	errorVerdictID := uuid.NewString()
+	okQueueID := uuid.NewString()
+	errorQueueID := uuid.NewString()
+
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-h', 'llm', 'r-ok', '{}'),
+		        (?, ?, 'agent-h', 'llm', 'r-error', '{}')`,
+		okEventID, sessID,
+		errorEventID, sessID,
+	); err != nil {
+		t.Fatalf("seed events: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status)
+		 VALUES (?, ?, ?, 'M3', 'block', 'ok'),
+		        (?, ?, ?, '', 'error', 'error')`,
+		okVerdictID, okEventID, sessID,
+		errorVerdictID, errorEventID, sessID,
+	); err != nil {
+		t.Fatalf("seed verdicts: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO hitl_queue (id, event_id, verdict_id, session_id, mad_code)
+		 VALUES (?, ?, ?, ?, 'M3'),
+		        (?, ?, ?, ?, '')`,
+		okQueueID, okEventID, okVerdictID, sessID,
+		errorQueueID, errorEventID, errorVerdictID, sessID,
+	); err != nil {
+		t.Fatalf("seed hitl_queue: %v", err)
+	}
+
+	resp := getReq(t, srv, cookie, "/api/reviews?status=pending&verdict_status=error")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	data := decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 {
+		t.Fatalf("total = %v, want 1", data["total"])
+	}
+	reviews := data["reviews"].([]any)
+	row := reviews[0].(map[string]any)
+	if row["id"] != errorQueueID || row["verdict_status"] != "error" {
+		t.Fatalf("filtered review = %v, want only classifier-error review %q", row, errorQueueID)
+	}
+
+	resp = getReq(t, srv, cookie, "/api/reviews?verdict_status=bogus")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid verdict_status status = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -1069,6 +1218,66 @@ func TestEventsMinMADFilterUsesLatestVerdict(t *testing.T) {
 	}
 	if verdictsByEvent[eB] != "M3.a" {
 		t.Errorf("event B latest verdict = %v, want M3.a", verdictsByEvent[eB])
+	}
+}
+
+func TestEventsVerdictStatusFilterUsesLatestVerdict(t *testing.T) {
+	srv, db, _, cookie := newTestServerLoggedIn(t)
+
+	const sid = "sess-verdict-status"
+
+	eOK := uuid.NewString()
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-ok', 'tool', 'r1', '{}')`,
+		eOK, sid,
+	); err != nil {
+		t.Fatalf("seed ok event: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status, created_at)
+		 VALUES (?, ?, ?, '', 'error', 'error', datetime('now', '-2 seconds')),
+		        (?, ?, ?, 'M0', 'benign', 'ok', datetime('now', '-1 seconds'))`,
+		uuid.NewString(), eOK, sid,
+		uuid.NewString(), eOK, sid,
+	); err != nil {
+		t.Fatalf("seed ok verdicts: %v", err)
+	}
+
+	eError := uuid.NewString()
+	if _, err := db.Exec(
+		`INSERT INTO events (id, session_id, agent_id, event_type, run_id, payload)
+		 VALUES (?, ?, 'agent-error', 'llm', 'r2', '{}')`,
+		eError, sid,
+	); err != nil {
+		t.Fatalf("seed error event: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO verdicts (id, event_id, session_id, mad_code, classification, verdict_status, created_at)
+		 VALUES (?, ?, ?, 'M0', 'benign', 'ok', datetime('now', '-2 seconds')),
+		        (?, ?, ?, '', 'error', 'error', datetime('now', '-1 seconds'))`,
+		uuid.NewString(), eError, sid,
+		uuid.NewString(), eError, sid,
+	); err != nil {
+		t.Fatalf("seed error verdicts: %v", err)
+	}
+
+	resp := getReq(t, srv, cookie, "/api/events?session_id="+sid+"&verdict_status=error")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	data := decodeBody(t, resp)["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 {
+		t.Errorf("verdict_status=error total = %v, want 1", data["total"])
+	}
+	events := data["events"].([]any)
+	if len(events) != 1 || events[0].(map[string]any)["id"] != eError {
+		t.Errorf("verdict_status=error events = %v, want only event %q", events, eError)
+	}
+
+	resp = getReq(t, srv, cookie, "/api/events?session_id="+sid+"&verdict_status=bogus")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid verdict_status status = %d, want 400", resp.StatusCode)
 	}
 }
 

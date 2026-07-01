@@ -198,10 +198,11 @@ def init(
         session_id: Session identifier.  Falls back to
             ``ADRIAN_SESSION_ID``, then to a per-cwd persistent UUID.
             See :mod:`adrian.session_persistence`.
-        block_timeout: Max seconds to wait for a verdict in ``MODE_BLOCK``
-            before fail-open.  Ignored in ``MODE_ALERT`` (no wait) and
-            ``MODE_HITL`` (wait indefinitely).  Falls back to
-            ``ADRIAN_BLOCK_TIMEOUT``.
+        block_timeout: Max seconds to wait for a verdict in ``MODE_BLOCK``.
+            Timeout handling follows the server policy's
+            ``fail_closed_on_classifier_error`` flag.  Ignored in
+            ``MODE_ALERT`` (no wait) and ``MODE_HITL`` (wait indefinitely).
+            Falls back to ``ADRIAN_BLOCK_TIMEOUT``.
         on_event: Callback for every paired event.
         on_verdict: Callback for every verdict.
         on_block: Callback for BLOCK-tier verdicts (M3 / M4).  Notification
@@ -844,10 +845,17 @@ def _extract_tool_calls(  # pyright: ignore[reportUnusedFunction]
 def _should_halt(verdict: pb.Verdict) -> bool:
     """Decide whether a verdict should halt tool execution.
 
-    HITL resolutions override per-MAD policy when present.
+    HITL resolutions override everything: ``continue_execution=False``
+    means halt, ``True`` means continue.  Classifier ERROR verdicts
+    follow ``fail_closed_on_classifier_error``.  Otherwise the per-MAD
+    policy bool is the sole scope authority: if the verdict's tier is
+    in-scope, halt; if not, continue.
     """
     if verdict.HasField("hitl"):
         return not verdict.hitl.continue_execution
+
+    if verdict.status == pb.VERDICT_STATUS_ERROR:
+        return bool(verdict.policy.fail_closed_on_classifier_error)
 
     mad_prefix = verdict.mad_code[:2]
     return {
@@ -861,11 +869,9 @@ def _should_halt(verdict: pb.Verdict) -> bool:
 def _patch_tool_node() -> None:
     """Patch ToolNode for callback injection + async verdict gate.
 
-    ToolNode dispatches tools via tool.invoke (sync) even within async
-    Pregel. BaseTool.invoke can't await a verdict from the event loop
-    thread, so we add the verdict gate here on ToolNode.ainvoke - the
-    entry point Pregel calls before tool dispatch begins. This is a
-    complementary gate to BaseTool (which covers direct callers).
+    ToolNode stays responsible for callback injection. The verdict gate lives
+    on ``BaseTool`` so async ToolNode dispatch does not consume verdict futures
+    before individual tools run.
     """
     try:
         from langgraph.prebuilt import ToolNode
@@ -981,6 +987,12 @@ def _patch_base_tool() -> None:
                 return True
 
         if not ws.policy_active():
+            return False
+
+        if tool_call_id not in ws._tool_call_id_to_event_id:  # pyright: ignore[reportPrivateUsage]
+            # Unknown / evicted correlation: there is no producing LLM
+            # event to gate, so this remains fail-open even when
+            # classifier-error fail-closed is enabled.
             return False
 
         cfg = _get_config()

@@ -157,6 +157,14 @@ Adrian supports entirely offline, data sovereign deployments using just a handfu
 
    Use the same `adrian.init` snippet as in the [Quickstart](#quickstart) above. The SDK defaults to `ws://localhost:8080/ws`, so a self-hosted setup needs nothing more than the API key - drop the `ws_url=` line.
 
+### Classifier error policy
+
+Adrian records classifier outages, malformed classifier responses, and unparseable classifier output as `verdict_status=error` with `mad_code=""`. These are operational classifier errors, not benign `M0` findings and not synthetic malicious activity.
+
+The default policy remains availability-first: classifier errors fail open. In **Settings -> Policy**, enable **Fail closed on classifier error** to make BLOCK-mode tool calls return blocked responses when the classifier cannot produce a verdict. In HITL mode, actionable classifier errors are sent to the review queue and held until an operator approves or rejects them.
+
+Fail-closed classifier-error enforcement requires the Python SDK version shipped with this repository update. Older SDKs ignore the additive protobuf `status` and policy fields, see an empty MAD code, and continue fail-open even when the dashboard toggle is enabled.
+
 To [reset the admin password](https://docs.adrian.secureagentics.ai/reference/backend#reset-the-admin-password), [change the model](https://docs.adrian.secureagentics.ai/reference/backend#switch-the-local-gguf) and much more check out the dedicated [Docs site](https://docs.adrian.secureagentics.ai/).
 
 ## Architecture

@@ -17,6 +17,7 @@ type verdictResponse struct {
 	MADCode        string `json:"mad_code"`
 	Classification string `json:"classification"`
 	VerdictStatus  string `json:"verdict_status"`
+	Reasoning      string `json:"reasoning,omitempty"`
 	LatencyMS      *int64 `json:"latency_ms,omitempty"`
 	TokensUsed     int32  `json:"tokens_used"`
 	CreatedAt      string `json:"created_at"`
@@ -78,6 +79,7 @@ func verdictRowToResponse(r *store.VerdictListRow) verdictResponse {
 		MADCode:        r.MADCode,
 		Classification: r.Classification,
 		VerdictStatus:  r.VerdictStatus,
+		Reasoning:      r.Reasoning,
 		LatencyMS:      r.LatencyMS,
 		TokensUsed:     r.TokensUsed,
 		CreatedAt:      r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),

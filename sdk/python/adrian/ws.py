@@ -228,9 +228,10 @@ class WebSocketClient:
         self._model = ""
         # Server-supplied execution-mode policy.  Populated when the
         # first ServerFrame{login_ack} arrives after each (re)connect.
-        # ``policy_active()`` and ``block_timeout()`` read this state
-        # to decide whether the patched ToolNode should wait for a
-        # verdict and how long.
+        # ``policy_active()``, ``block_timeout()``, and
+        # ``fail_closed_on_classifier_error()`` read this state to
+        # decide whether the patched ToolNode should wait for a verdict
+        # and how to handle classifier failures/timeouts.
         self._mode: int = pb.MODE_UNSPECIFIED
         self._policy: pb.PolicySnapshot | None = None
         # Set the first time a ``ServerFrame{login_ack}`` is applied.
@@ -265,7 +266,8 @@ class WebSocketClient:
         # with the matching ``Verdict`` proto.  Futures survive a
         # disconnect: a late verdict after reconnect still resolves
         # the wait; if none arrives, ``wait_for_verdict``'s timeout
-        # produces a natural fail-open in BLOCK mode.
+        # returns None and the patched ToolNode applies the current
+        # fail-open/fail-closed classifier-error policy.
         self._pending_verdicts: dict[str, asyncio.Future[pb.Verdict]] = {}
         # Maps LLM pair run_id → event_id so a subsequent tool call can
         # look up the verdict by its parent_run_id (the LLM's run_id).
@@ -325,8 +327,8 @@ class WebSocketClient:
     def block_timeout(self, kwarg_default: float) -> float | None:
         """Effective per-tool-call wait timeout for the active mode.
 
-        - ``MODE_BLOCK``: ``kwarg_default`` (typically 30s), fail-open
-          if the server doesn't classify in time.
+        - ``MODE_BLOCK``: ``kwarg_default`` (typically 30s). Timeout
+          handling follows ``fail_closed_on_classifier_error``.
         - ``MODE_HITL``: ``None``, wait indefinitely for human review.
         - ``MODE_ALERT`` / unset: ``0``, caller short-circuits before
           registering a future.
@@ -337,6 +339,12 @@ class WebSocketClient:
             return None
         else:
             return 0
+
+    def fail_closed_on_classifier_error(self) -> bool:
+        """Whether classifier errors/timeouts should halt tool execution."""
+        return bool(
+            self._policy is not None and self._policy.fail_closed_on_classifier_error
+        )
 
     # -- EventHandler protocol --
 
@@ -703,12 +711,13 @@ class WebSocketClient:
         self._login_ack_received.set()
         logger.info(
             "LoginAck received: mode=%s policy_m0=%s policy_m2=%s "
-            "policy_m3=%s policy_m4=%s",
+            "policy_m3=%s policy_m4=%s fail_closed_on_classifier_error=%s",
             pb.Mode.Name(ack.policy.mode),
             ack.policy.policy_m0,
             ack.policy.policy_m2,
             ack.policy.policy_m3,
             ack.policy.policy_m4,
+            ack.policy.fail_closed_on_classifier_error,
         )
 
         if self._on_login_ack_cb is not None:
@@ -733,10 +742,17 @@ class WebSocketClient:
         owns the cleanup: its ``finally`` pops the entry after the await
         returns.
         """
+        if verdict.HasField("policy"):
+            # Keep the policy snapshot fresh for BLOCK-mode timeout
+            # decisions. Execution mode remains login-fixed for this
+            # release; hot-switching mode mid-session is out of scope.
+            self._policy = verdict.policy
+
         logger.info(
-            "Verdict received: event_id=%s mad_code=%s mode=%s hitl=%s",
+            "Verdict received: event_id=%s mad_code=%s status=%s mode=%s hitl=%s",
             verdict.event_id,
             verdict.mad_code or "-",
+            pb.VerdictStatus.Name(verdict.status),
             pb.Mode.Name(verdict.policy.mode),
             verdict.HasField("hitl"),
         )
@@ -960,9 +976,9 @@ class WebSocketClient:
         """Wait for a verdict for ``event_id``.
 
         ``timeout`` is mode-derived (see :meth:`block_timeout`):
-        a positive float for ``MODE_BLOCK`` (fail-open at timeout),
+        a positive float for ``MODE_BLOCK`` (caller applies policy at timeout),
         ``None`` for ``MODE_HITL`` (wait indefinitely).  Returns the
-        verdict, or ``None`` on timeout (fail-open).
+        verdict, or ``None`` on timeout.
 
         Resolved futures are kept in ``_pending_verdicts`` so a second
         waiter on the same event_id (e.g. BaseTool.ainvoke firing after

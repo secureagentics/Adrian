@@ -45,8 +45,8 @@ func isActionable(ev *pb.PairedEvent) bool {
 	return llm != nil && len(llm.ToolCalls) > 0
 }
 
-// shouldFanOut decides whether a verdict's MAD code is in scope for
-// the active policy. False for codes outside the M0/M2/M3/M4 set
+// shouldFanOut decides whether an OK verdict's MAD code is in scope
+// for the active policy. False for codes outside the M0/M2/M3/M4 set
 // (defensive: an unrecognised code drops rather than panics) and for
 // MAD families whose policy_mX flag is unset.
 //

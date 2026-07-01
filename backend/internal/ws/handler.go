@@ -303,6 +303,11 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 	}
 	verdict, err := classifier.Classify(ctx, ev, agentProfileID)
 	if err != nil {
+		if ctx.Err() != nil {
+			slog.InfoContext(ctx, "ws.classify_cancelled",
+				"error", err, "event_id", ev.EventId)
+			return nil
+		}
 		slog.WarnContext(ctx, "ws.classifier_failure",
 			"error", err, "event_id", ev.EventId)
 		reasoning := "classifier failure: " + err.Error()
@@ -354,6 +359,10 @@ func persistAndClassify(ctx context.Context, sess *session, st *store.Store, cla
 }
 
 func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictID, madCode, verdictStatus string) error {
+	if verdictStatus == "error" {
+		return dispatchErrorVerdict(ctx, sess, st, hub, ev, snap, verdictID, madCode)
+	}
+
 	// Mode-gated dispatch:
 	//   alert: persist verdict, do NOT notify the SDK (dashboard-only).
 	//   hitl + in-scope + actionable: persist + queue for human review,
@@ -361,7 +370,7 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 	//   hitl + in-scope + non-actionable: forward (review would be a
 	//     no-op for the operator since the SDK never blocks on it).
 	//   hitl + out-of-scope: forward (no review queued for this code).
-	//   block: forward all verdicts; SDK is the enforcement point.
+	//   block: forward all OK verdicts; SDK is the enforcement point.
 	inScope := shouldFanOut(snap, madCode)
 	switch snap.GetMode() {
 	case pb.Mode_MODE_ALERT:
@@ -391,6 +400,38 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 		return nil
 	}
 
+	publishVerdict(ctx, sess, hub, ev, snap, madCode, verdictStatus)
+	return nil
+}
+
+func dispatchErrorVerdict(ctx context.Context, sess *session, st *store.Store, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictID, madCode string) error {
+	switch snap.GetMode() {
+	case pb.Mode_MODE_ALERT:
+		return nil
+	case pb.Mode_MODE_BLOCK:
+		publishVerdict(ctx, sess, hub, ev, snap, madCode, "error")
+		return nil
+	case pb.Mode_MODE_HITL:
+		if snap.GetFailClosedOnClassifierError() && isActionable(ev) {
+			if err := st.InsertHitlQueue(ctx, ev.EventId, verdictID, sess.sessionID, madCode); err != nil {
+				slog.ErrorContext(ctx, "hitl.insert_failed_fallback_publish",
+					"error", err, "event_id", ev.EventId, "verdict_id", verdictID)
+				publishVerdict(ctx, sess, hub, ev, snap, madCode, "error")
+			}
+			return nil
+		}
+		publishVerdict(ctx, sess, hub, ev, snap, madCode, "error")
+		return nil
+	default:
+		slog.WarnContext(ctx, "ws.unknown_mode_dropping_verdict",
+			"mode", snap.GetMode().String(), "event_id", ev.EventId)
+		return nil
+	}
+}
+
+func publishVerdict(ctx context.Context, sess *session, hub *Hub, ev *pb.PairedEvent, snap *pb.PolicySnapshot, madCode, verdictStatus string) {
+	warnOldSDKClassifierErrorCompatibility(ctx, sess, ev, snap, verdictStatus)
+
 	out := &pb.ServerFrame{
 		Frame: &pb.ServerFrame_Verdict{
 			Verdict: &pb.Verdict{
@@ -406,7 +447,28 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 		slog.WarnContext(ctx, "ws.publish_dropped",
 			"event_id", ev.EventId, "session_id", sess.sessionID)
 	}
-	return nil
+}
+
+func warnOldSDKClassifierErrorCompatibility(ctx context.Context, sess *session, ev *pb.PairedEvent, snap *pb.PolicySnapshot, verdictStatus string) {
+	if verdictStatus != "error" || !snap.GetFailClosedOnClassifierError() || sess.warnedClassifierErrorCompatibility {
+		return
+	}
+	sess.warnedClassifierErrorCompatibility = true
+	slog.WarnContext(ctx, "ws.classifier_error_fail_closed_requires_updated_sdk",
+		"event_id", ev.EventId,
+		"session_id", sess.sessionID,
+		"message", "old SDKs ignore classifier-error status and policy fields, so fail-closed enforcement requires the updated SDK")
+}
+
+func verdictStatusProto(status string) pb.VerdictStatus {
+	switch status {
+	case "error":
+		return pb.VerdictStatus_VERDICT_STATUS_ERROR
+	case "ok":
+		return pb.VerdictStatus_VERDICT_STATUS_OK
+	default:
+		return pb.VerdictStatus_VERDICT_STATUS_UNSPECIFIED
+	}
 }
 
 func verdictStatusProto(status string) pb.VerdictStatus {

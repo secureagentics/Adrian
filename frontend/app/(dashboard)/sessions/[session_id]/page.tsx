@@ -5,12 +5,13 @@ import { useParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Badge } from '@/components/badge'
 import { JsonBlock } from '@/components/json-block'
-import { madBadgeColor, timeAgo } from '@/lib/utils'
+import { verdictBadgeColor, verdictBadgeLabel, timeAgo } from '@/lib/utils'
 
 type Verdict = {
   id: string
   mad_code: string
   classification: string
+  verdict_status: string
 }
 
 type Entry = {
@@ -92,7 +93,7 @@ export default function SessionTimelinePage() {
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <Badge label={entry.event_type.replace('EVENT_TYPE_', '').toUpperCase()} className="bg-surface-overlay text-ink-3" />
                       {entry.verdict && (
-                        <Badge label={entry.verdict.mad_code} className={madBadgeColor(entry.verdict.mad_code)} />
+                        <Badge label={verdictBadgeLabel(entry.verdict)} className={verdictBadgeColor(entry.verdict)} />
                       )}
                       <span className="text-xs text-ink-3 font-mono ml-auto">{timeAgo(entry.created_at)}</span>
                     </div>
@@ -111,7 +112,7 @@ export default function SessionTimelinePage() {
                       <div>
                         <p className="text-[12.5px] text-ink-3 mb-1">Verdict</p>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-                          <Badge label={entry.verdict.mad_code} className={madBadgeColor(entry.verdict.mad_code)} />
+                          <Badge label={verdictBadgeLabel(entry.verdict)} className={verdictBadgeColor(entry.verdict)} />
                         </div>
                       </div>
                     )}

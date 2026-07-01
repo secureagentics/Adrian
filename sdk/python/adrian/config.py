@@ -18,7 +18,8 @@ type OnVerdictCallback = (
 """Callback invoked for every verdict received.
 
 Accepts a ``VerdictContext`` with full event metadata.  May be sync or
-async.  Fires for every MAD code the server forwards (M0 / M2 / M3 / M4).
+async.  Fires for every forwarded verdict, including classifier-error
+verdicts whose ``mad_code`` is empty.
 """
 
 type OnBlockCallback = (
@@ -97,8 +98,9 @@ class AdrianConfig:
         ws_url: WebSocket URL for the Adrian server.  ``None`` disables
             the WebSocket handler.
         block_timeout: Max seconds to wait for a verdict in ``MODE_BLOCK``
-            before fail-open.  Ignored in ``MODE_ALERT`` (no wait) and
-            ``MODE_HITL`` (wait indefinitely).
+            before applying the server's classifier-error timeout policy.
+            Ignored in ``MODE_ALERT`` (no wait) and ``MODE_HITL`` (wait
+            indefinitely).
         on_event: Callback for every paired event.
         on_verdict: Callback for every verdict.
         on_block: Callback for BLOCK-tier verdicts (M3 / M4).

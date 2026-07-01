@@ -33,6 +33,7 @@ type VerdictListRow struct {
 	MADCode        string
 	Classification string
 	VerdictStatus  string
+	Reasoning      string
 	LatencyMS      *int64
 	TokensUsed     int32
 	CreatedAt      time.Time
@@ -76,7 +77,7 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 	args = append(args, perPage, offset)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, event_id, session_id, mad_code, classification, verdict_status,
-		        latency_ms, tokens_used, created_at
+		        COALESCE(reasoning, ''), latency_ms, tokens_used, created_at
 		 FROM verdicts
 		 WHERE `+where+`
 		 ORDER BY created_at DESC
@@ -92,7 +93,7 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 		var latency sql.NullInt64
 		var createdAt string
 		if err := rows.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification, &r.VerdictStatus,
-			&latency, &r.TokensUsed, &createdAt); err != nil {
+			&r.Reasoning, &latency, &r.TokensUsed, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if latency.Valid {
@@ -109,14 +110,14 @@ func (s *Store) ListVerdicts(ctx context.Context, f VerdictFilters, perPage, off
 func (s *Store) GetVerdictByEventID(ctx context.Context, eventID string) (*VerdictListRow, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, event_id, session_id, mad_code, classification, verdict_status,
-		        latency_ms, tokens_used, created_at
+		        COALESCE(reasoning, ''), latency_ms, tokens_used, created_at
 		 FROM verdicts WHERE event_id = ?
 		 ORDER BY created_at DESC LIMIT 1`, eventID)
 	r := &VerdictListRow{}
 	var latency sql.NullInt64
 	var createdAt string
 	if err := row.Scan(&r.ID, &r.EventID, &r.SessionID, &r.MADCode, &r.Classification, &r.VerdictStatus,
-		&latency, &r.TokensUsed, &createdAt); err != nil {
+		&r.Reasoning, &latency, &r.TokensUsed, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}

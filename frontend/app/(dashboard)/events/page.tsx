@@ -7,7 +7,7 @@ import { AlertExplanation } from '@/components/alert-explanation'
 import { Badge } from '@/components/badge'
 import { JsonBlock } from '@/components/json-block'
 import { Pagination } from '@/components/pagination'
-import { madBadgeColor, timeAgo } from '@/lib/utils'
+import { isClassifierErrorVerdict, madBadgeColor, timeAgo, verdictBadgeColor, verdictBadgeLabel } from '@/lib/utils'
 import { TimeRange, sinceForRange, TimeRangeSelect } from '@/components/time-range'
 
 type EventRow = {
@@ -28,7 +28,10 @@ type EventVerdict = {
   id: string
   mad_code: string
   classification: string
+  verdict_status?: string
+  reasoning?: string
   latency_ms?: number | null
+  created_at?: string
 }
 
 type EventDetail = EventRow & {
@@ -40,7 +43,14 @@ type EventDetail = EventRow & {
 export default function EventsPage() {
   const [data, setData] = useState<{ events: EventRow[]; total: number }>({ events: [], total: 0 })
   const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState({ event_type: '', session_id: '', min_mad: '' })
+  const [filters, setFilters] = useState(() => ({
+    event_type: '',
+    session_id: '',
+    min_mad: '',
+    verdict_status: typeof window === 'undefined'
+      ? ''
+      : new URLSearchParams(window.location.search).get('verdict_status') || '',
+  }))
   const [range, setRange] = useState<TimeRange>('24h')
   const [customSince, setCustomSince] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -52,6 +62,7 @@ export default function EventsPage() {
     if (filters.event_type) params.set('event_type', filters.event_type)
     if (filters.session_id) params.set('session_id', filters.session_id)
     if (filters.min_mad) params.set('min_mad', filters.min_mad)
+    if (filters.verdict_status) params.set('verdict_status', filters.verdict_status)
     if (since) params.set('since', since)
     api(`/api/events?${params}`)
       .then(r => setData(r.data || { events: [], total: 0 }))
@@ -95,6 +106,14 @@ export default function EventsPage() {
           <option value="M2">M2+</option>
           <option value="M3">M3+</option>
           <option value="M4">M4 only</option>
+        </select>
+        <select
+          value={filters.verdict_status}
+          onChange={e => { setFilters(f => ({ ...f, verdict_status: e.target.value })); setPage(1) }}
+          className="px-3 py-1.5 border border-surface-border rounded text-sm bg-surface-overlay"
+        >
+          <option value="">All classifier states</option>
+          <option value="error">Classifier error</option>
         </select>
         <TimeRangeSelect
           value={range}
@@ -275,10 +294,10 @@ function ExpandedDetail({ event, detail }: { event: EventRow; detail: EventDetai
           <p className="text-xs text-ink-3">No verdict recorded for this event yet.</p>
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-            <Badge label={verdict.mad_code} className={madBadgeColor(verdict.mad_code)} />
-            {detail?.verdict && typeof detail.verdict.latency_ms === 'number' && (
+            <Badge label={verdictBadgeLabel(verdict)} className={verdictBadgeColor(verdict)} />
+            {typeof verdict.latency_ms === 'number' && (
               <span className="font-mono text-ink-3">
-                Latency: <span className="text-ink">{detail.verdict.latency_ms}ms</span>
+                Latency: <span className="text-ink">{verdict.latency_ms}ms</span>
               </span>
             )}
             <Link
@@ -289,7 +308,12 @@ function ExpandedDetail({ event, detail }: { event: EventRow; detail: EventDetai
             </Link>
           </div>
         )}
-        {verdict && verdict.mad_code !== 'M0' && (
+        {verdict && isClassifierErrorVerdict(verdict) && verdict.reasoning && (
+          <p className="mt-3 text-xs text-ink-3 font-mono break-words">
+            {verdict.reasoning}
+          </p>
+        )}
+        {verdict && !isClassifierErrorVerdict(verdict) && verdict.mad_code !== 'M0' && (
           <div className="mt-3">
             <AlertExplanation madCode={verdict.mad_code} />
           </div>

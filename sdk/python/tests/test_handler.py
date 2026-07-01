@@ -12,6 +12,8 @@ from adrian.format.types import LlmPairData, PairedEvent, ToolPairData
 from adrian.handler import AdrianCallbackHandler, extract_model_name
 from adrian.hooks import HookRegistry
 from adrian.pairing import EventPairBuffer
+from adrian.proto import event_pb2 as pb
+from adrian.types import EventRecord, VerdictContext
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,  # noqa: TC002
@@ -230,3 +232,47 @@ class TestExtractModelName:
 
     def test_empty_dict(self) -> None:
         assert extract_model_name({}) == "unknown"
+
+
+class TestVerdictCallbacks:
+    async def test_error_verdict_populates_status_without_mad_callbacks(self) -> None:
+        seen: list[VerdictContext] = []
+        blocked: list[VerdictContext] = []
+        audited: list[VerdictContext] = []
+
+        handler = AdrianCallbackHandler(
+            pair_buffer=EventPairBuffer(),
+            context_tracker=AgentContextTracker(),
+            hooks=HookRegistry(),
+            config=AdrianConfig(
+                on_verdict=seen.append,
+                on_block=blocked.append,
+                on_audit=audited.append,
+            ),
+        )
+        handler._event_map["evt-error"] = EventRecord(  # pyright: ignore[reportPrivateUsage]
+            event_type="llm",
+            data={
+                "output": "tool call",
+                "tool_calls": [],
+                "usage": None,
+            },
+            run_id="run-1",
+            parent_run_id=None,
+        )
+
+        await handler.handle_verdict(
+            pb.Verdict(
+                event_id="evt-error",
+                session_id="sess-1",
+                status=pb.VERDICT_STATUS_ERROR,
+                mad_code="",
+                policy=pb.PolicySnapshot(fail_closed_on_classifier_error=True),
+            ),
+        )
+
+        assert len(seen) == 1
+        assert seen[0].status == pb.VERDICT_STATUS_ERROR
+        assert seen[0].mad_code == ""
+        assert blocked == []
+        assert audited == []

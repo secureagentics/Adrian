@@ -22,8 +22,9 @@
 |                       HTTP POST to ADRIAN_LLM_URL (OpenAI          |
 |                       compatible chat-completions), strip          |
 |                       <reasoning> blocks, parse M-code. On         |
-|                       classifier error, fail-open with synthetic   |
-|                       M0 / benign + WARN log.                      |
+|                       classifier error, return an error to WS      |
+|                       ingest. WS persists verdict_status=error,    |
+|                       mad_code="", and routes by policy.           |
 |                              |                                     |
 |                              v                                     |
 |  internal/store       SQLite (WAL) writes: events, verdicts,       |
@@ -47,9 +48,9 @@
 +--------------------------------------------------------------------+
 |  adrian-frontend  (Next.js container)                              |
 |   Login and force-change-password, agent profiles, API keys,       |
-|   policy editor (singleton mode + per-MAD-code toggles), HITL      |
-|   review queue, events and verdicts feeds (REST poll), webhook     |
-|   configuration (Discord).                                         |
+|   policy editor (singleton mode, per-MAD-code toggles, classifier  |
+|   error fail-closed flag), HITL review queue, events and verdicts  |
+|   feeds (REST poll), webhook configuration (Discord).              |
 +--------------------------------------------------------------------+
 
 +--------------------------------------------------------------------+

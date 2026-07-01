@@ -84,13 +84,18 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 			since = t
 		}
 	}
+	if status := q.Get("verdict_status"); status != "" && !validVerdictStatus(status) {
+		writeError(w, http.StatusBadRequest, "invalid verdict_status")
+		return
+	}
 
 	filters := store.EventFilters{
-		Since:     since,
-		AgentID:   q.Get("agent_id"),
-		SessionID: q.Get("session_id"),
-		EventType: q.Get("event_type"),
-		MinMAD:    q.Get("min_mad"),
+		Since:         since,
+		AgentID:       q.Get("agent_id"),
+		SessionID:     q.Get("session_id"),
+		EventType:     q.Get("event_type"),
+		MinMAD:        q.Get("min_mad"),
+		VerdictStatus: q.Get("verdict_status"),
 	}
 
 	rows, total, err := s.store.ListEvents(r.Context(), filters, pg.PerPage, pg.Offset)
@@ -203,6 +208,7 @@ func eventToListItemResponse(r *store.EventListRow) eventListItemResponse {
 			ID:             r.VerdictID,
 			MADCode:        r.MADCode,
 			Classification: r.Classification,
+			VerdictStatus:  r.VerdictStatus,
 		}
 	}
 	return resp

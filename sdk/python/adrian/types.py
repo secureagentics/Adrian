@@ -219,9 +219,11 @@ class VerdictContext:
         event_data: Original event payload TypedDict.
         run_id: LangChain run ID.
         parent_run_id: Parent run ID if nested, or ``None``.
-        mad_code: MAD policy code the classifier returned
+        status: Classifier result status. ``VERDICT_STATUS_ERROR`` means
+            the classifier did not produce a MAD code; ``mad_code`` is empty.
+        mad_code: MAD policy code the classifier returned on OK verdicts
             (e.g. ``"M0"``, ``"M2_C"``, ``"M4_a"``).  Empty string
-            when no code is set (benign).
+            means no classifier-produced MAD code exists.
         policy: Org's effective execution-mode policy at the moment
             this verdict was decided.  Carries the mode (alert /
             block / hitl) and per-MAD-code scope booleans.
@@ -238,6 +240,7 @@ class VerdictContext:
     run_id: str
     parent_run_id: str | None
     policy: pb.PolicySnapshot
+    status: int = pb.VERDICT_STATUS_UNSPECIFIED
     mad_code: str = ""
     hitl: pb.HitlResponse | None = None
 

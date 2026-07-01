@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,28 +48,40 @@ func (s *Store) InsertHitlQueue(ctx context.Context, eventID, verdictID, session
 	return err
 }
 
-// ListHitlQueue returns rows in the requested status (default 'pending'),
-// newest first, paginated.
-func (s *Store) ListHitlQueue(ctx context.Context, status string, perPage, offset int) ([]*HitlReview, int, error) {
+// ListHitlQueue returns rows in the requested review status (default
+// 'pending') and optional verdict status, newest first, paginated.
+func (s *Store) ListHitlQueue(ctx context.Context, status, verdictStatus string, perPage, offset int) ([]*HitlReview, int, error) {
 	if status == "" {
 		status = "pending"
 	}
+	where := []string{"q.status = ?"}
+	args := []any{status}
+	if verdictStatus != "" {
+		where = append(where, "COALESCE(v.verdict_status, 'ok') = ?")
+		args = append(args, verdictStatus)
+	}
+	whereSQL := strings.Join(where, " AND ")
+
 	var total int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM hitl_queue WHERE status = ?`, status,
+		`SELECT count(*)
+		 FROM hitl_queue q
+		 LEFT JOIN verdicts v ON v.id = q.verdict_id
+		 WHERE `+whereSQL, args...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+	queryArgs := append(append([]any{}, args...), perPage, offset)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT q.id, q.event_id, COALESCE(q.verdict_id, ''), COALESCE(q.session_id, ''),
 		        q.mad_code, COALESCE(v.verdict_status, 'ok'), q.status, COALESCE(q.reviewed_by, ''),
 		        COALESCE(q.reviewed_at, ''), q.created_at
 		 FROM hitl_queue q
 		 LEFT JOIN verdicts v ON v.id = q.verdict_id
-		 WHERE q.status = ?
+		 WHERE `+whereSQL+`
 		 ORDER BY q.created_at DESC
 		 LIMIT ? OFFSET ?`,
-		status, perPage, offset)
+		queryArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
