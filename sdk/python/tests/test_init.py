@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -69,6 +70,24 @@ class TestInit:
         adrian.init(log_file=str(log), auto_instrument=False)
 
         assert log.exists()
+
+    def test_warns_when_ws_init_has_no_running_loop(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """init() should warn when WS enforcement starts without a loop."""
+        caplog.set_level(logging.WARNING, logger="adrian")
+        log = tmp_path / "events.jsonl"
+
+        adrian.init(
+            api_key="k",
+            log_file=str(log),
+            auto_instrument=False,
+            ws_url="ws://x",
+        )
+
+        assert "without a running event loop" in caplog.text
 
     def test_sync_init_first_async_send_starts_connect_task(self) -> None:
         """First async send should start connect when init() ran without a loop."""

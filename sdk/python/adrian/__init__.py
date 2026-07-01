@@ -339,9 +339,11 @@ def init(
         if loop is not None:
             _ws_client.schedule_connect(loop)
         else:
-            logger.debug(
-                "No running event loop at init(); WebSocket will connect on "
-                "first send from within an async context."
+            logger.warning(
+                "Adrian initialised without a running event loop. WebSocket "
+                "transport and BLOCK/HITL verdict handling may not be active "
+                "yet; sync ToolNode.invoke will fail closed until an event "
+                "loop connects the WebSocket and receives a policy LoginAck."
             )
 
     if auto_instrument:
@@ -857,15 +859,12 @@ def _should_halt(verdict: pb.Verdict) -> bool:
         "M4": verdict.policy.policy_m4,
     }.get(mad_prefix, False)
 
-
 def _patch_tool_node() -> None:
-    """Patch ToolNode for callback injection + async verdict gate.
+    """Patch ``ToolNode.invoke`` / ``ainvoke``.
 
-    ToolNode dispatches tools via tool.invoke (sync) even within async
-    Pregel. BaseTool.invoke can't await a verdict from the event loop
-    thread, so we add the verdict gate here on ToolNode.ainvoke - the
-    entry point Pregel calls before tool dispatch begins. This is a
-    complementary gate to BaseTool (which covers direct callers).
+    ToolNode stays responsible for callback injection. The verdict gate lives
+    on ``BaseTool`` so async ToolNode dispatch does not consume verdict futures
+    before individual tools run.
     """
     try:
         from langgraph.prebuilt import ToolNode
@@ -885,7 +884,9 @@ def _patch_tool_node() -> None:
         config: Any = None,
         **kwargs: Any,  # noqa: A002, ANN401
     ) -> Any:  # noqa: ANN401
+        """Inject Adrian callbacks into sync ToolNode invocation."""
         config = _inject_callbacks(config)
+
         return original_invoke(self, input, config=config, **kwargs)
 
     async def patched_ainvoke(
