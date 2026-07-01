@@ -1,43 +1,59 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/adrian-logo-dark.png">
-    <img src="assets/adrian-logo-light.png" alt="Adrian by Secure Agentics" width="400">
+    <img src="assets/adrian-logo-light.png" alt="Adrian by Secure Agentics" width="360">
   </picture>
 </p>
 
-<p align="center">
-  <b>Open-source runtime security monitoring and control for AI agents.</b>
-</p>
+<h3 align="center">Agent attacks slip past static analysis and network monitoring.</h3>
+<p align="center"><b>Adrian catches them at runtime, by watching what the agent actually does (its actions and its reasoning) and stepping in before it acts. Open source, free forever.</b></p>
+
+<p align="center"><b>+35% detection accuracy · 4x more nuanced attacks caught</b> <sup>vs behaviour-only monitoring (<a href="https://arxiv.org/pdf/2503.11926">OpenAI &amp; DeepMind research</a>). The first tool to ship it as a deployable control.</sup></p>
 
 <p align="center">
+  <a href="https://github.com/secureagentics/Adrian/stargazers"><img src="https://img.shields.io/github/stars/secureagentics/Adrian?style=social" alt="Stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue.svg" alt="Licence" /></a>
   <a href="https://app.adrian.secureagentics.ai/"><img src="https://img.shields.io/badge/Dashboard-Sign%20Up-22C55E" alt="Dashboard" /></a>
   <a href="https://pypi.org/project/adrian-sdk/"><img src="https://img.shields.io/pypi/v/adrian-sdk.svg" alt="PyPI" /></a>
   <a href="https://discord.gg/Vq2VyYrw8Z"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://www.linkedin.com/company/secure-agentics"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
-  <a href="https://www.producthunt.com/products/adrian?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-adrian" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Product%20Hunt-Featured-DA552F?logo=producthunt&logoColor=white" alt="Product Hunt" /></a>
+  <a href="https://www.producthunt.com/products/adrian?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-adrian" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Product%20Hunt-Featured-DA552F?logo=producthunt&logoColor=white" alt="Product Hunt" /></a>
 </p>
+
+<p align="center"><i>⭐ If you think agents need a runtime security layer, star the repo. It is how new people find Adrian, and how we know to keep building it in the open.</i></p>
 
 ---
 
 Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security monitoring and control engine for AI agents. It analyses both agent activity logs (tool calls, actions, outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit behaviour, and optionally intervene in-flight. SDKs are available for Python (LangChain) and TypeScript (see [sdk/typescript/README.md](sdk/typescript/README.md)).
 
 <p align="center">
-  <a href="https://docs.adrian.secureagentics.ai">Documentation</a>
-  &nbsp;•&nbsp;
-  <a href="https://app.adrian.secureagentics.ai">Dashboard</a>
-  &nbsp;•&nbsp;
-  <a href="https://discord.gg/Vq2VyYrw8Z">Discord</a>
-  &nbsp;•&nbsp;
+  <a href="https://docs.adrian.secureagentics.ai">Documentation</a> &nbsp;•&nbsp;
+  <a href="https://app.adrian.secureagentics.ai">Dashboard</a> &nbsp;•&nbsp;
+  <a href="https://discord.gg/Vq2VyYrw8Z">Discord</a> &nbsp;•&nbsp;
   <a href="https://www.linkedin.com/company/secure-agentics">LinkedIn</a>
 </p>
 
+> **▶️ See it in action:** Adrian catches an agent going out-of-remit in real time and steps in before the action lands.
+
 https://github.com/user-attachments/assets/ba50e6e4-fe3e-47b2-aa69-2902e1ef2924
 
-##### New to Adrian? Check out the [Launch Video](https://www.youtube.com/watch?v=NkEISlRhyFs)
+<sup>New to Adrian? Check out the [Launch Video](https://www.youtube.com/watch?v=NkEISlRhyFs).</sup>
+
+## Why Adrian is different
+
+Most agent monitoring stops at activity logs: APIs, MCP, DB interactions, tool calls, etc. Adrian enhances this by also analysing the agent's reasoning: understanding _why_ it took an action, under what context, and what it is planning on doing next. Combining behaviour and reasoning analysis like this is exactly what the [OpenAI and DeepMind research](https://arxiv.org/pdf/2503.11926) found catches far more, and Adrian is the first tool to put it into a deployable security control, free forever.
+
+**What it catches:**
+- Prompt injection and jailbreaks, direct and indirect
+- Tool poisoning and unsafe or off-policy tool calls
+- Data exfiltration and secret / credential leakage
+- Privilege escalation and out-of-remit actions
+
+Classifiers trained on prompt-injection datasets only catch what they have seen before. Adrian works differently: it holds a working understanding of what your agent is meant to do and judges each new action against that, correlated across the whole session. So when your e-commerce agent starts resetting user passwords, something no training set would flag, Adrian catches it.
+
 ## Quickstart
 
-> **Want the stupidly simple, 60-second hands-off install?** Feed your coding agent (Claude, Codex, Cursor, etc.) this file: [GET_STARTED_AI_GUIDE.md](https://github.com/secureagentics/Adrian/blob/main/GET_STARTED_AI_GUIDE.md). It will walk you through the installation process - [video guide here](https://youtu.be/7vYjeGxY8to). Always review instructions manually
+> **Want the stupidly simple, 60-second hands-off install?** Feed your coding agent (Claude, Codex, Cursor, etc.) this file: [GET_STARTED_AI_GUIDE.md](https://github.com/secureagentics/Adrian/blob/main/GET_STARTED_AI_GUIDE.md). It will walk you through the installation process ([video guide here](https://youtu.be/7vYjeGxY8to)). Always review instructions manually.
 
 The next fastest way to try Adrian is the managed dashboard at [app.adrian.secureagentics.ai](https://app.adrian.secureagentics.ai). Sign-up takes a minute and there is nothing to install beyond the SDK. To run Adrian on your own infrastructure instead, jump to [Self-hosting](#self-hosting) below.
 
@@ -143,13 +159,6 @@ Adrian supports entirely offline, data sovereign deployments using just a handfu
 
 To [reset the admin password](https://docs.adrian.secureagentics.ai/reference/backend#reset-the-admin-password), [change the model](https://docs.adrian.secureagentics.ai/reference/backend#switch-the-local-gguf) and much more check out the dedicated [Docs site](https://docs.adrian.secureagentics.ai/).
 
-## Why Adrian is different
-
-Most agent monitoring stops at activity logs: APIs, MCP, DB interactions, tool calls, etc. Adrian enhances this by also analysing the agent's reasoning: understanding _why_ it took an action, under what context, and what it is planning on doing next. [Research by OpenAI and DeepMind](https://arxiv.org/pdf/2503.11926) found that combining behaviour and reasoning analysis like this boosts detection accuracy by around 35% and is 4x more likely to catch nuanced attacks. Adrian is the first tool to put that into a deployable security control, and it is free, forever.
-
-Furthermore, most tools in this space are lightweight machine learning classifiers trained to spot patterns which match their training data (usually labelled prompt injection datasets). Adrian takes a different approach: it uses world models that understand risk through reasoning like a human does. It correlates behaviours across a session, holds a working understanding of what the agent is meant to be doing, and assesses each new action against that. The detection logic is closer to a human reviewer's than to pattern matching against examples it has been trained to spot. For example, if your e-commerce agent starts resetting user passwords that isn't going to appear in any training dataset, but this is a risk you should be flagging. This is where you get the meaningful security uplift that allows you to use agentic AI with confidence, and it's exactly why we made Adrian.
-
-
 ## Architecture
 
 ```mermaid
@@ -176,6 +185,7 @@ flowchart TD
         <a href="https://platform.openai.com/docs/agents"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logos/openai-dark.svg"><img height="32" src="assets/logos/openai-light.svg" alt="OpenAI Agents SDK"></picture></a>
       </td>
       <td>
+        <a href="https://claude.com/claude-code"><img height="32" src="https://cdn.simpleicons.org/claude/D97757" alt="Claude Code"></a>&nbsp;<sup>coming soon</sup>&nbsp;&nbsp;
         <a href="https://docs.anthropic.com/"><img height="32" src="https://cdn.simpleicons.org/anthropic/D97757" alt="Anthropic Agents SDK"></a>&nbsp;&nbsp;
         <a href="https://www.crewai.com/"><img height="32" src="https://cdn.simpleicons.org/crewai/FF5A50" alt="CrewAI"></a>&nbsp;&nbsp;
         <a href="https://github.com/openclaw/openclaw"><img height="32" src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/pixel-lobster.svg" alt="OpenClaw"></a>
@@ -196,11 +206,11 @@ flowchart TD
   </tbody>
 </table>
 
-Full list: [Integrations](https://docs.adrian.secureagentics.ai/integrations).
+Full list: [Integrations](https://docs.adrian.secureagentics.ai/integrations). Want Claude Code the day it lands? ⭐ the repo or [join Discord](https://discord.gg/Vq2VyYrw8Z).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short: sign the [CLA](CLA.md), branch off `main`, follow the PR template, and use British English / no em-dashes in prose.
+⭐ Star the repo if Adrian is useful. Then see [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. In short: sign the [CLA](CLA.md), branch off `main`, follow the PR template, and use British English / no em-dashes in prose.
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the list of people who have shaped Adrian, and how to add yourself.
 
