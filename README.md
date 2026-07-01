@@ -8,7 +8,7 @@
 <h3 align="center">Agent attacks slip past static analysis and network monitoring.</h3>
 <p align="center"><b>Adrian catches them at runtime, by watching what the agent actually does (its actions and its reasoning) and stepping in before it acts. Open source, free forever.</b></p>
 
-<p align="center"><b>+35% detection accuracy · 4x more nuanced attacks caught</b> <sup>vs behaviour-only monitoring (<a href="https://arxiv.org/pdf/2503.11926">OpenAI &amp; DeepMind research</a>). The first tool to ship it as a deployable control.</sup></p>
+<p align="center"><b>+35% detection accuracy · 4x more nuanced attacks caught</b> vs behaviour-only monitoring (<a href="https://arxiv.org/pdf/2503.11926">OpenAI &amp; DeepMind research</a>)</p>
 
 <p align="center">
   <a href="https://github.com/secureagentics/Adrian/stargazers"><img src="https://img.shields.io/github/stars/secureagentics/Adrian?style=social" alt="Stars" /></a>
