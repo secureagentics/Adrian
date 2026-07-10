@@ -1,0 +1,66 @@
+{
+  "name": "@secureagentics/adrian-langchain",
+  "version": "1.0.0",
+  "description": "LangChain SDK instrumentation for Adrian security monitoring.",
+  "license": "Apache-2.0",
+  "author": "Secure Agentics <support@secureagentics.ai>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/secureagentics/Adrian.git",
+    "directory": "sdk/typescript/packages/langchain"
+  },
+  "homepage": "https://github.com/secureagentics/Adrian/tree/main/sdk/typescript/packages/langchain#readme",
+  "bugs": {
+    "url": "https://github.com/secureagentics/Adrian/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --clean && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "langchain",
+    "ai",
+    "agents",
+    "security",
+    "monitoring"
+  ],
+  "dependencies": {
+    "@secureagentics/adrian": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@secureagentics/adrian": "file:../core",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  }
+}
