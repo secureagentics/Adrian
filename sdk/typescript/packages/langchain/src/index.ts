@@ -142,7 +142,8 @@ function captureLangChainCall(
   input: unknown,
   options: AdrianOptions,
 ): unknown {
-  const model = extractModelName(runnable);
+  const lcKwargs = asRecord(runnable.lc_kwargs);
+  const model = String(runnable.model ?? asRecord(asRecord(runnable.bound).lc_kwargs).model ?? lcKwargs.model ?? asRecord(lcKwargs.bound).model);
   const messages = normalizeLangChainMessages(input);
   const metadata = integrationMetadata(options.metadata, operation);
 
@@ -260,22 +261,6 @@ function extractToolCall(tool: Record<PropertyKey, unknown>, input: unknown, con
     name: String(inputObj.name ?? langGraphToolCall.name ?? tool.name ?? fallbackName ?? "unknown"),
     args: inputObj.args ?? langGraphToolCall.args ?? inputObj.arguments ?? input,
   };
-}
-
-function extractModelName(runnable: Record<PropertyKey, unknown>): string {
-  const kwargs = asRecord(runnable.kwargs);
-  const serialized = asRecord(runnable.lc_kwargs);
-  return String(
-    runnable.modelName ??
-    runnable.model ??
-    runnable.modelId ??
-    kwargs.model ??
-    kwargs.modelName ??
-    serialized.model ??
-    runnable.lc_name ??
-    runnable.constructor?.name ??
-    "langchain",
-  );
 }
 
 function extractUsage(obj: Record<PropertyKey, unknown>): LlmEndData["usage"] {
