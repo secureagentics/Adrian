@@ -37,6 +37,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --clean && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -61,6 +62,7 @@
     "@secureagentics/adrian": "file:../core",
     "@types/node": "^25.9.1",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }
