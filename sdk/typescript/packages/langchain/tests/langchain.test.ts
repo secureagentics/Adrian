@@ -8,7 +8,7 @@ import {
   type Verdict,
   type WebSocketClient,
 } from "@secureagentics/adrian";
-import { adrian } from "../src/index.js";
+import { adrian, langchain } from "../src/index.js";
 
 interface LangChainMessageLike {
   content: string;
@@ -39,7 +39,10 @@ interface LangChainRunnableLike {
   model?: string;
   invoke(input: unknown, config?: unknown): Promise<LangChainResultLike>;
   stream?(input: unknown, config?: unknown): Promise<AsyncIterable<LangChainResultLike>>;
+  bind?(options: Record<string, unknown>): LangChainRunnableLike;
   bindTools?(tools: LangChainToolLike[]): LangChainRunnableLike;
+  withConfig?(config: Record<string, unknown>): LangChainRunnableLike;
+  pipe?(next: LangChainRunnableLike): LangChainRunnableLike;
 }
 
 interface LangChainToolLike {
@@ -64,6 +67,61 @@ function ai(content: string): LangChainMessageLike {
 
 async function* langChainStream(chunks: LangChainResultLike[]) {
   for (const chunk of chunks) yield chunk;
+}
+
+interface StreamLike<T> extends AsyncIterable<T> {
+  controller: AbortController;
+  tee(): [StreamLike<T>, StreamLike<T>];
+  toReadableStream(): ReadableStream<Uint8Array>;
+}
+
+function mockLangChainStream<T>(chunks: T[]): StreamLike<T> {
+  const controller = new AbortController();
+  async function* sourceIterator() {
+    for (const chunk of chunks) yield chunk;
+  }
+
+  const stream = {
+    controller,
+    async *[Symbol.asyncIterator]() {
+      yield* sourceIterator();
+    },
+    tee() {
+      const left: Array<Promise<IteratorResult<T>>> = [];
+      const right: Array<Promise<IteratorResult<T>>> = [];
+      const iterator = sourceIterator();
+      const branch = (queue: Array<Promise<IteratorResult<T>>>) => ({
+        next: () => {
+          if (queue.length === 0) {
+            const result = iterator.next();
+            left.push(result);
+            right.push(result);
+          }
+          return queue.shift()!;
+        },
+      });
+      const branchStream = (iter: () => AsyncIterator<T>) => ({
+        controller,
+        [Symbol.asyncIterator]: iter,
+        tee: stream.tee,
+        toReadableStream: stream.toReadableStream,
+      });
+      return [branchStream(() => branch(left)), branchStream(() => branch(right))] as [typeof stream, typeof stream];
+    },
+    toReadableStream() {
+      let iter: AsyncIterator<T> | undefined;
+      return new ReadableStream<Uint8Array>({
+        pull: async (ctrl) => {
+          iter ??= (this as AsyncIterable<T>)[Symbol.asyncIterator]();
+          const { value, done } = await iter.next();
+          if (done) ctrl.close();
+          else ctrl.enqueue(new TextEncoder().encode(`${JSON.stringify(value)}\n`));
+        },
+      });
+    },
+  };
+
+  return stream;
 }
 
 function mockWs(halt: boolean): WebSocketClient {
@@ -161,6 +219,101 @@ describe("LangChain instrumentation", () => {
     });
   });
 
+  it("preserves LangChain stream helper methods when Adrian is enabled", async () => {
+    const events: EventData[] = [];
+    const source = mockLangChainStream([{ content: "hello" }]);
+    const model: LangChainRunnableLike = {
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => ({ content: "" })),
+      stream: vi.fn(async () => source),
+    };
+    const wrapped = adrian.langchain(model);
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_type, data) => {
+      events.push(data);
+    } });
+
+    const result = await wrapped.stream!("stream") as StreamLike<LangChainResultLike>;
+
+    expect(result.controller).toBe(source.controller);
+    expect(typeof result.tee).toBe("function");
+    expect(typeof result.toReadableStream).toBe("function");
+
+    const reader = result.toReadableStream().getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toBe("{\"content\":\"hello\"}\n");
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+    }
+
+    expect(events[0]).toMatchObject({
+      kind: "llm",
+      model: "gpt-4o-mini",
+      output: "hello",
+    });
+  });
+
+  it("preserves tee() while capturing a single LangChain stream event", async () => {
+    const events: EventData[] = [];
+    const source = mockLangChainStream([{ content: "hello " }, { content: "world" }]);
+    const model: LangChainRunnableLike = {
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => ({ content: "" })),
+      stream: vi.fn(async () => source),
+    };
+    const wrapped = adrian.langchain(model);
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_type, data) => {
+      events.push(data);
+    } });
+
+    const result = await wrapped.stream!("stream") as StreamLike<LangChainResultLike>;
+    const [left, right] = result.tee();
+
+    expect(left.controller).toBe(source.controller);
+    expect(typeof left.toReadableStream).toBe("function");
+
+    for await (const _chunk of left) {
+      // consume one tee branch
+    }
+    for await (const _chunk of right) {
+      // consume the other branch
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: "llm",
+      model: "gpt-4o-mini",
+      output: "hello world",
+    });
+  });
+
+  it("emits partial LangChain stream data when the consumer stops early", async () => {
+    const events: EventData[] = [];
+    const model: LangChainRunnableLike = {
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => ({ content: "" })),
+      stream: vi.fn(async () => langChainStream([{ content: "first " }, { content: "second" }])),
+    };
+    const wrapped = adrian.langchain(model);
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_type, data) => {
+      events.push(data);
+    } });
+
+    const result = await wrapped.stream!("stream");
+    for await (const _chunk of result) {
+      break;
+    }
+
+    expect(events[0]).toMatchObject({
+      kind: "llm",
+      model: "gpt-4o-mini",
+      output: "first ",
+    });
+  });
+
   it("wraps bindTools inputs and keeps the derived runnable instrumented", async () => {
     const events: Array<{ type: string; data: EventData }> = [];
     const lookupUser: LangChainToolLike = {
@@ -218,6 +371,41 @@ describe("LangChain instrumentation", () => {
     });
   });
 
+  it("keeps bind, withConfig, and pipe derived runnables instrumented", async () => {
+    const events: EventData[] = [];
+    const derivedRunnable = (label: string): LangChainRunnableLike => ({
+      modelName: `derived-${label}`,
+      invoke: vi.fn(async () => ({ content: `${label} result` })),
+    });
+    const pipedRunnable = derivedRunnable("pipe");
+    const model: LangChainRunnableLike = {
+      modelName: "base-model",
+      invoke: vi.fn(async () => ({ content: "base result" })),
+      bind: vi.fn(() => derivedRunnable("bind")),
+      withConfig: vi.fn(() => derivedRunnable("config")),
+      pipe: vi.fn((next) => next),
+    };
+    const wrapped = adrian.langchain(model);
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_type, data) => {
+      events.push(data);
+    } });
+
+    await wrapped.bind!({ temperature: 0 }).invoke("bound input");
+    await wrapped.withConfig!({ tags: ["security"] }).invoke("configured input");
+    await wrapped.pipe!(pipedRunnable).invoke("piped input");
+
+    expect(model.bind).toHaveBeenCalledWith({ temperature: 0 });
+    expect(model.withConfig).toHaveBeenCalledWith({ tags: ["security"] });
+    expect(model.pipe).toHaveBeenCalledWith(pipedRunnable);
+    expect(events).toHaveLength(3);
+    expect(events.map((event) => "output" in event ? event.output : undefined)).toEqual([
+      "bind result",
+      "config result",
+      "pipe result",
+    ]);
+  });
+
   it("captures named tool maps and LangGraph tool call config", async () => {
     const events: Array<{ type: string; data: EventData }> = [];
     const toolMap: { lookup_user: LangChainToolLike } = {
@@ -249,6 +437,38 @@ describe("LangChain instrumentation", () => {
     });
   });
 
+  it("captures LangChain tool execution errors as tool events", async () => {
+    const events: Array<{ type: string; data: EventData }> = [];
+    const rawTools: LangChainToolLike[] = [{
+      name: "lookup_user",
+      invoke: vi.fn(async () => {
+        throw new Error("lookup API unavailable");
+      }),
+    }];
+    const tools = adrian.adrianTools(rawTools);
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (type, data) => {
+      events.push({ type, data });
+    } });
+
+    await expect(tools[0]!.invoke!({
+      id: "call-lookup",
+      name: "lookup_user",
+      args: { userId: "user_123" },
+    })).rejects.toThrow("lookup API unavailable");
+
+    expect(events[0]).toMatchObject({
+      type: "tool",
+      data: {
+        kind: "tool",
+        toolName: "lookup_user",
+        toolCallId: "call-lookup",
+        output: "[ERROR] Error: lookup API unavailable",
+        error: { name: "Error", message: "lookup API unavailable" },
+      },
+    });
+  });
+
   it("blocks LangChain tool execution when policy halts the tool call", async () => {
     await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, blockTimeout: 5 });
     vi.spyOn(adrianCore, "getWebSocketClient").mockReturnValue(mockWs(true));
@@ -271,6 +491,40 @@ describe("LangChain instrumentation", () => {
 
     expect(result).toBe(BLOCKED_TOOL_MESSAGE);
     expect(executed).toBe(false);
+  });
+
+  it("emits no_invocation when LangChain capture runs without an outer invocation", async () => {
+    const pairedEvents: PairedEvent[] = [];
+    const model = adrian.langchain<LangChainRunnableLike>({
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => ({
+        content: "",
+        tool_calls: [{ id: "call-lookup", name: "lookup_user", args: { userId: "user_123" } }],
+      })),
+    });
+    const rawTools: LangChainToolLike[] = [{
+      name: "lookup_user",
+      invoke: vi.fn(async () => ({ userId: "user_123", status: "active" })),
+    }];
+    const tools = adrian.adrianTools(rawTools);
+
+    await adrian.init({
+      handlers: [{
+        onPairedEvent(event) {
+          pairedEvents.push(event);
+        },
+        close() {},
+      }],
+      sessionId: "sess",
+      wsUrl: null,
+    });
+
+    const response = await model.invoke("Check user_123.");
+    await tools[0]!.invoke!(response.tool_calls![0]);
+
+    expect(pairedEvents).toHaveLength(2);
+    expect(pairedEvents.map((event) => event.invocationId)).toEqual(["no_invocation", "no_invocation"]);
+    expect(pairedEvents.map((event) => event.pairType)).toEqual(["llm", "tool"]);
   });
 
   it("reuses the active invocation for runnable and tool events", async () => {
@@ -307,5 +561,76 @@ describe("LangChain instrumentation", () => {
     expect(pairedEvents).toHaveLength(2);
     expect(pairedEvents.map((event) => event.invocationId)).toEqual(["inv-langchain", "inv-langchain"]);
     expect(pairedEvents.map((event) => event.pairType)).toEqual(["llm", "tool"]);
+  });
+
+  it("captures LangChain invoke errors as LLM events", async () => {
+    const events: Array<{ type: string; data: EventData }> = [];
+    const model = adrian.langchain<LangChainRunnableLike>({
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => {
+        throw new Error("rate limited");
+      }),
+    });
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (type, data) => {
+      events.push({ type, data });
+    } });
+
+    await expect(model.invoke("hi")).rejects.toThrow("rate limited");
+
+    expect(events[0]).toMatchObject({
+      type: "llm",
+      data: {
+        kind: "llm",
+        model: "gpt-4o-mini",
+        output: "[ERROR] Error: rate limited",
+        error: { name: "Error", message: "rate limited" },
+      },
+    });
+  });
+
+  it("captures LangChain stream setup errors as LLM events", async () => {
+    const events: Array<{ type: string; data: EventData }> = [];
+    const model = adrian.langchain<LangChainRunnableLike>({
+      modelName: "gpt-4o-mini",
+      invoke: vi.fn(async () => ({ content: "" })),
+      stream: vi.fn(async () => {
+        throw new Error("stream rate limited");
+      }),
+    });
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (type, data) => {
+      events.push({ type, data });
+    } });
+
+    await expect(model.stream!("hi")).rejects.toThrow("stream rate limited");
+
+    expect(events[0]).toMatchObject({
+      type: "llm",
+      data: {
+        kind: "llm",
+        model: "gpt-4o-mini",
+        output: "[ERROR] Error: stream rate limited",
+        error: { name: "Error", message: "stream rate limited" },
+      },
+    });
+  });
+
+  it("wraps runnables via the named langchain export and passes through primitives", async () => {
+    const events: EventData[] = [];
+    const model = langchain<LangChainRunnableLike>({
+      modelName: "gpt-4o",
+      invoke: vi.fn(async () => ({ content: "hello" })),
+    });
+
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_type, data) => {
+      events.push(data);
+    } });
+
+    expect(langchain("plain value")).toBe("plain value");
+    await model.invoke("hi");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ model: "gpt-4o", output: "hello" });
   });
 });
