@@ -143,7 +143,7 @@ function captureLangChainCall(
   options: AdrianOptions,
 ): unknown {
   const lcKwargs = asRecord(runnable.lc_kwargs);
-  const model = String(runnable.model ?? asRecord(asRecord(runnable.bound).lc_kwargs).model ?? lcKwargs.model ?? asRecord(lcKwargs.bound).model);
+  const model = extractLangChainModel(runnable);
   const messages = normalizeLangChainMessages(input);
   const metadata = integrationMetadata(options.metadata, operation);
 
@@ -156,6 +156,27 @@ function captureLangChainCall(
   }
 
   return captureLlmCall(getHandler, { model, messages, metadata }, () => Promise.resolve(execute()), extractLangChainResult, gateLlmEndData);
+}
+
+function extractLangChainModel(runnable: Record<PropertyKey, unknown>): string {
+  const lcKwargs = asRecord(runnable.lc_kwargs);
+  const bound = asRecord(runnable.bound);
+  const boundLcKwargs = asRecord(bound.lc_kwargs);
+  const lcKwargsBound = asRecord(lcKwargs.bound);
+
+  return String(
+    runnable.modelName
+    ?? runnable.model
+    ?? bound.modelName
+    ?? bound.model
+    ?? boundLcKwargs.modelName
+    ?? boundLcKwargs.model
+    ?? lcKwargs.modelName
+    ?? lcKwargs.model
+    ?? lcKwargsBound.modelName
+    ?? lcKwargsBound.model
+    ?? "langchain",
+  );
 }
 
 function wrapLangChainTool<T>(tool: T, options: ToolCaptureOptions, fallbackName?: string): T {
