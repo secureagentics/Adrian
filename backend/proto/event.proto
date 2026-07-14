@@ -117,6 +117,7 @@ message PairedEvent {
   // Escape hatch for framework metadata not modelled as first-class fields
   // (e.g. LangGraph checkpoint_ns, arbitrary tags).
   bytes metadata_json = 20;
+  string source = 21;
 }
 
 // PairedEventBatch wraps multiple paired events for batched WebSocket frames.
@@ -169,6 +170,9 @@ message SessionLogin {
   reserved "block_mode";
   // Wire schema version the client is speaking.  Server rejects unknown values.
   uint32 schema_version = 4;
+  // SDK / integration that produced this session (e.g. "claude-code"); the
+  // server branches HITL behavior on it. Empty for legacy SDKs.
+  string source = 5;
 }
 
 // ClientFrame is the top-level envelope for all client WebSocket messages.

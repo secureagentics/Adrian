@@ -14,7 +14,10 @@ type session struct {
 	sessionID   string
 	llmProvider string
 	llmModel    string
-	loggedIn    bool
+	// source is the SDK / integration identifier from SessionLogin.source
+	// (e.g. "claude-code"). Drives CC-native HITL handling in dispatchVerdict.
+	source   string
+	loggedIn bool
 }
 
 // agentProfileID returns the bound agent_profile_id (or nil if the

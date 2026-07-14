@@ -214,6 +214,7 @@ func handleLogin(ctx context.Context, conn *websocket.Conn, sess *session, st *s
 		sess.llmProvider = login.LlmStack.Provider
 		sess.llmModel = login.LlmStack.Model
 	}
+	sess.source = login.GetSource()
 	sess.loggedIn = true
 
 	pol, err := st.GetPolicy(ctx)
@@ -369,20 +370,26 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 		// notified. No SDK-side action is expected in alert mode.
 		return nil
 	case pb.Mode_MODE_HITL:
-		if inScope && isActionable(ev) {
-			// Queue for human review and hold the verdict. The reviews
-			// REST handler resumes the SDK with a HitlResponse-bearing
-			// Verdict on approve/reject via the same hub channel.
+		// Claude Code gates HITL client-side: its PreToolUse hook blocks and
+		// shows a terminal approval prompt, so CC is its own wait point.
+		// Forward every in-scope verdict to it and never queue a dashboard
+		// review no operator would action. This is source-gated and
+		// independent of isActionable, which only models the LangChain wait
+		// point. Other SDKs are held for review only when they have a
+		// server-visible wait point (isActionable); anything else forwards so
+		// the SDK isn't left waiting on a resolution that will never come.
+		if inScope && sess.source != "claude-code" && isActionable(ev) {
+			// Queue for human review and hold the verdict. The reviews REST
+			// handler resumes the SDK with a HitlResponse-bearing Verdict on
+			// approve/reject via the same hub channel.
 			if err := st.InsertHitlQueue(ctx, ev.EventId, verdictID, sess.sessionID, madCode); err != nil {
 				slog.ErrorContext(ctx, "hitl.insert_failed",
 					"error", err, "event_id", ev.EventId)
 			}
 			return nil
 		}
-		// Out of scope OR non-actionable, forward so the SDK isn't
-		// left waiting on a resolution that will never come, and the
-		// operator isn't asked to review something approving cannot
-		// influence.
+		// Fall through: forward (Claude Code inline HITL, a non-actionable
+		// event, or an out-of-scope code).
 	case pb.Mode_MODE_BLOCK:
 		// Forward every verdict; SDK is the policy enforcement point.
 	default:

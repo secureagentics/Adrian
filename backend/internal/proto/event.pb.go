@@ -625,6 +625,7 @@ type PairedEvent struct {
 	// Escape hatch for framework metadata not modelled as first-class fields
 	// (e.g. LangGraph checkpoint_ns, arbitrary tags).
 	MetadataJson  []byte `protobuf:"bytes,20,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
+	Source        string `protobuf:"bytes,21,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -752,6 +753,13 @@ func (x *PairedEvent) GetMetadataJson() []byte {
 		return x.MetadataJson
 	}
 	return nil
+}
+
+func (x *PairedEvent) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
 }
 
 type isPairedEvent_Data interface {
@@ -996,6 +1004,9 @@ type SessionLogin struct {
 	LlmStack *LLMStack `protobuf:"bytes,2,opt,name=llm_stack,json=llmStack,proto3" json:"llm_stack,omitempty"`
 	// Wire schema version the client is speaking.  Server rejects unknown values.
 	SchemaVersion uint32 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// SDK / integration that produced this session (e.g. "claude-code"); the
+	// server branches HITL behavior on it. Empty for legacy SDKs.
+	Source        string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1049,6 +1060,13 @@ func (x *SessionLogin) GetSchemaVersion() uint32 {
 		return x.SchemaVersion
 	}
 	return 0
+}
+
+func (x *SessionLogin) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
 }
 
 // ClientFrame is the top-level envelope for all client WebSocket messages.
@@ -1567,7 +1585,7 @@ const file_event_proto_rawDesc = "" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +
 	"toolCallId\x12\x14\n" +
 	"\x05input\x18\x03 \x01(\tR\x05input\x12\x16\n" +
-	"\x06output\x18\x04 \x01(\tR\x06output\"\x8c\x04\n" +
+	"\x06output\x18\x04 \x01(\tR\x06output\"\xa4\x04\n" +
 	"\vPairedEvent\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12#\n" +
 	"\rinvocation_id\x18\x02 \x01(\tR\finvocationId\x12\x1d\n" +
@@ -1582,7 +1600,8 @@ const file_event_proto_rawDesc = "" +
 	"\x03llm\x18\n" +
 	" \x01(\v2\x1f.adrian.core_api.v1.LlmPairDataH\x00R\x03llm\x126\n" +
 	"\x04tool\x18\v \x01(\v2 .adrian.core_api.v1.ToolPairDataH\x00R\x04tool\x12#\n" +
-	"\rmetadata_json\x18\x14 \x01(\fR\fmetadataJsonB\x06\n" +
+	"\rmetadata_json\x18\x14 \x01(\fR\fmetadataJson\x12\x16\n" +
+	"\x06source\x18\x15 \x01(\tR\x06sourceB\x06\n" +
 	"\x04data\"K\n" +
 	"\x10PairedEventBatch\x127\n" +
 	"\x06events\x18\x01 \x03(\v2\x1f.adrian.core_api.v1.PairedEventR\x06events\"Y\n" +
@@ -1594,12 +1613,13 @@ const file_event_proto_rawDesc = "" +
 	"\aservers\x18\x01 \x03(\v2\x1d.adrian.core_api.v1.McpServerR\aservers\"<\n" +
 	"\bLLMStack\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\x02 \x01(\tR\x05model\"\xa1\x01\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\"\xb9\x01\n" +
 	"\fSessionLogin\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x129\n" +
 	"\tllm_stack\x18\x02 \x01(\v2\x1c.adrian.core_api.v1.LLMStackR\bllmStack\x12%\n" +
-	"\x0eschema_version\x18\x04 \x01(\rR\rschemaVersionJ\x04\b\x03\x10\x04R\n" +
+	"\x0eschema_version\x18\x04 \x01(\rR\rschemaVersion\x12\x16\n" +
+	"\x06source\x18\x05 \x01(\tR\x06sourceJ\x04\b\x03\x10\x04R\n" +
 	"block_mode\"\xf1\x01\n" +
 	"\vClientFrame\x128\n" +
 	"\x05login\x18\x01 \x01(\v2 .adrian.core_api.v1.SessionLoginH\x00R\x05login\x12I\n" +

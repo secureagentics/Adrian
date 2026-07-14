@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from .buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x65vent.proto\x12\x12\x61\x64rian.core_api.v1\x1a\x1b\x62uf/validate/validate.proto\",\n\x0b\x43hatMessage\x12\x0c\n\x04role\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\";\n\x08ToolCall\x12\x15\n\x04name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x0c\n\x04\x61rgs\x18\x02 \x01(\t\x12\n\n\x02id\x18\x03 \x01(\t\"o\n\nTokenUsage\x12\x1e\n\rprompt_tokens\x18\x01 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\x12\"\n\x11\x63ompletion_tokens\x18\x02 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\x12\x1d\n\x0ctotal_tokens\x18\x03 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\"Q\n\x0c\x41gentContext\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x15\n\rsystem_prompt\x18\x02 \x01(\t\x12\x18\n\x10user_instruction\x18\x03 \x01(\t\"\xc0\x01\n\x0bLlmPairData\x12\r\n\x05model\x18\x01 \x01(\t\x12\x31\n\x08messages\x18\x02 \x03(\x0b\x32\x1f.adrian.core_api.v1.ChatMessage\x12\x0e\n\x06output\x18\x03 \x01(\t\x12\x30\n\ntool_calls\x18\x04 \x03(\x0b\x32\x1c.adrian.core_api.v1.ToolCall\x12-\n\x05usage\x18\x05 \x01(\x0b\x32\x1e.adrian.core_api.v1.TokenUsage\"_\n\x0cToolPairData\x12\x1a\n\ttool_name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x14\n\x0ctool_call_id\x18\x02 \x01(\t\x12\r\n\x05input\x18\x03 \x01(\t\x12\x0e\n\x06output\x18\x04 \x01(\t\"\xb3\x03\n\x0bPairedEvent\x12\x19\n\x08\x65vent_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x15\n\rinvocation_id\x18\x02 \x01(\t\x12\x1b\n\nsession_id\x18\x03 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x0e\n\x06run_id\x18\x04 \x01(\t\x12\x15\n\rparent_run_id\x18\x05 \x01(\t\x12\x11\n\ttimestamp\x18\x06 \x01(\t\x12\x37\n\tpair_type\x18\x07 \x01(\x0e\x32\x1c.adrian.core_api.v1.PairTypeB\x06\xbaH\x03\xc8\x01\x01\x12/\n\x05\x61gent\x18\x08 \x01(\x0b\x32 .adrian.core_api.v1.AgentContext\x12\x30\n\x06parent\x18\t \x01(\x0b\x32 .adrian.core_api.v1.AgentContext\x12.\n\x03llm\x18\n \x01(\x0b\x32\x1f.adrian.core_api.v1.LlmPairDataH\x00\x12\x30\n\x04tool\x18\x0b \x01(\x0b\x32 .adrian.core_api.v1.ToolPairDataH\x00\x12\x15\n\rmetadata_json\x18\x14 \x01(\x0c\x42\x06\n\x04\x64\x61ta\"C\n\x10PairedEventBatch\x12/\n\x06\x65vents\x18\x01 \x03(\x0b\x32\x1f.adrian.core_api.v1.PairedEvent\"G\n\tMcpServer\x12\x15\n\x04name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x10\n\x08\x65ndpoint\x18\x03 \x01(\t\">\n\x0cMcpInventory\x12.\n\x07servers\x18\x01 \x03(\x0b\x32\x1d.adrian.core_api.v1.McpServer\"+\n\x08LLMStack\x12\x10\n\x08provider\x18\x01 \x01(\t\x12\r\n\x05model\x18\x02 \x01(\t\"\x86\x01\n\x0cSessionLogin\x12\x1b\n\nsession_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12/\n\tllm_stack\x18\x02 \x01(\x0b\x32\x1c.adrian.core_api.v1.LLMStack\x12\x16\n\x0eschema_version\x18\x04 \x01(\rJ\x04\x08\x03\x10\x04R\nblock_mode\"\xcf\x01\n\x0b\x43lientFrame\x12\x31\n\x05login\x18\x01 \x01(\x0b\x32 .adrian.core_api.v1.SessionLoginH\x00\x12<\n\x0cpaired_batch\x18\x03 \x01(\x0b\x32$.adrian.core_api.v1.PairedEventBatchH\x00\x12\x39\n\rmcp_inventory\x18\x04 \x01(\x0b\x32 .adrian.core_api.v1.McpInventoryH\x00\x42\x07\n\x05\x66rameJ\x04\x08\x02\x10\x03R\x05\x62\x61tch\"\xad\x01\n\x0ePolicySnapshot\x12&\n\x04mode\x18\x01 \x01(\x0e\x32\x18.adrian.core_api.v1.Mode\x12\x11\n\tpolicy_m0\x18\x02 \x01(\x08\x12\x11\n\tpolicy_m2\x18\x03 \x01(\x08\x12\x11\n\tpolicy_m3\x18\x04 \x01(\x08\x12\x11\n\tpolicy_m4\x18\x05 \x01(\x08\x12\'\n\x1f\x66\x61il_closed_on_classifier_error\x18\x06 \x01(\x08\"*\n\x0cHitlResponse\x12\x1a\n\x12\x63ontinue_execution\x18\x01 \x01(\x08\">\n\x08LoginAck\x12\x32\n\x06policy\x18\x01 \x01(\x0b\x32\".adrian.core_api.v1.PolicySnapshot\"y\n\x0bServerFrame\x12\x31\n\tlogin_ack\x18\x01 \x01(\x0b\x32\x1c.adrian.core_api.v1.LoginAckH\x00\x12.\n\x07verdict\x18\x02 \x01(\x0b\x32\x1b.adrian.core_api.v1.VerdictH\x00\x42\x07\n\x05\x66rame\"\x90\x02\n\x07Verdict\x12\x19\n\x08\x65vent_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x1b\n\nsession_id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x10\n\x08mad_code\x18\x04 \x01(\t\x12\x32\n\x06policy\x18\x06 \x01(\x0b\x32\".adrian.core_api.v1.PolicySnapshot\x12.\n\x04hitl\x18\x07 \x01(\x0b\x32 .adrian.core_api.v1.HitlResponse\x12\x31\n\x06status\x18\x08 \x01(\x0e\x32!.adrian.core_api.v1.VerdictStatusJ\x04\x08\x03\x10\x04J\x04\x08\x05\x10\x06R\x0e\x63lassificationR\x08\x65scalate*L\n\x08PairType\x12\x19\n\x15PAIR_TYPE_UNSPECIFIED\x10\x00\x12\x11\n\rPAIR_TYPE_LLM\x10\x01\x12\x12\n\x0ePAIR_TYPE_TOOL\x10\x02*K\n\x04Mode\x12\x14\n\x10MODE_UNSPECIFIED\x10\x00\x12\x0e\n\nMODE_ALERT\x10\x01\x12\r\n\tMODE_HITL\x10\x02\x12\x0e\n\nMODE_BLOCK\x10\x03*`\n\rVerdictStatus\x12\x1e\n\x1aVERDICT_STATUS_UNSPECIFIED\x10\x00\x12\x15\n\x11VERDICT_STATUS_OK\x10\x01\x12\x18\n\x14VERDICT_STATUS_ERROR\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x65vent.proto\x12\x12\x61\x64rian.core_api.v1\x1a\x1b\x62uf/validate/validate.proto\",\n\x0b\x43hatMessage\x12\x0c\n\x04role\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\";\n\x08ToolCall\x12\x15\n\x04name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x0c\n\x04\x61rgs\x18\x02 \x01(\t\x12\n\n\x02id\x18\x03 \x01(\t\"o\n\nTokenUsage\x12\x1e\n\rprompt_tokens\x18\x01 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\x12\"\n\x11\x63ompletion_tokens\x18\x02 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\x12\x1d\n\x0ctotal_tokens\x18\x03 \x01(\x05\x42\x07\xbaH\x04\x1a\x02(\x00\"Q\n\x0c\x41gentContext\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x15\n\rsystem_prompt\x18\x02 \x01(\t\x12\x18\n\x10user_instruction\x18\x03 \x01(\t\"\xc0\x01\n\x0bLlmPairData\x12\r\n\x05model\x18\x01 \x01(\t\x12\x31\n\x08messages\x18\x02 \x03(\x0b\x32\x1f.adrian.core_api.v1.ChatMessage\x12\x0e\n\x06output\x18\x03 \x01(\t\x12\x30\n\ntool_calls\x18\x04 \x03(\x0b\x32\x1c.adrian.core_api.v1.ToolCall\x12-\n\x05usage\x18\x05 \x01(\x0b\x32\x1e.adrian.core_api.v1.TokenUsage\"_\n\x0cToolPairData\x12\x1a\n\ttool_name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x14\n\x0ctool_call_id\x18\x02 \x01(\t\x12\r\n\x05input\x18\x03 \x01(\t\x12\x0e\n\x06output\x18\x04 \x01(\t\"\xc3\x03\n\x0bPairedEvent\x12\x19\n\x08\x65vent_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x15\n\rinvocation_id\x18\x02 \x01(\t\x12\x1b\n\nsession_id\x18\x03 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x0e\n\x06run_id\x18\x04 \x01(\t\x12\x15\n\rparent_run_id\x18\x05 \x01(\t\x12\x11\n\ttimestamp\x18\x06 \x01(\t\x12\x37\n\tpair_type\x18\x07 \x01(\x0e\x32\x1c.adrian.core_api.v1.PairTypeB\x06\xbaH\x03\xc8\x01\x01\x12/\n\x05\x61gent\x18\x08 \x01(\x0b\x32 .adrian.core_api.v1.AgentContext\x12\x30\n\x06parent\x18\t \x01(\x0b\x32 .adrian.core_api.v1.AgentContext\x12.\n\x03llm\x18\n \x01(\x0b\x32\x1f.adrian.core_api.v1.LlmPairDataH\x00\x12\x30\n\x04tool\x18\x0b \x01(\x0b\x32 .adrian.core_api.v1.ToolPairDataH\x00\x12\x15\n\rmetadata_json\x18\x14 \x01(\x0c\x12\x0e\n\x06source\x18\x15 \x01(\tB\x06\n\x04\x64\x61ta\"C\n\x10PairedEventBatch\x12/\n\x06\x65vents\x18\x01 \x03(\x0b\x32\x1f.adrian.core_api.v1.PairedEvent\"G\n\tMcpServer\x12\x15\n\x04name\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x11\n\ttransport\x18\x02 \x01(\t\x12\x10\n\x08\x65ndpoint\x18\x03 \x01(\t\">\n\x0cMcpInventory\x12.\n\x07servers\x18\x01 \x03(\x0b\x32\x1d.adrian.core_api.v1.McpServer\"+\n\x08LLMStack\x12\x10\n\x08provider\x18\x01 \x01(\t\x12\r\n\x05model\x18\x02 \x01(\t\"\x96\x01\n\x0cSessionLogin\x12\x1b\n\nsession_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12/\n\tllm_stack\x18\x02 \x01(\x0b\x32\x1c.adrian.core_api.v1.LLMStack\x12\x16\n\x0eschema_version\x18\x04 \x01(\r\x12\x0e\n\x06source\x18\x05 \x01(\tJ\x04\x08\x03\x10\x04R\nblock_mode\"\xcf\x01\n\x0b\x43lientFrame\x12\x31\n\x05login\x18\x01 \x01(\x0b\x32 .adrian.core_api.v1.SessionLoginH\x00\x12<\n\x0cpaired_batch\x18\x03 \x01(\x0b\x32$.adrian.core_api.v1.PairedEventBatchH\x00\x12\x39\n\rmcp_inventory\x18\x04 \x01(\x0b\x32 .adrian.core_api.v1.McpInventoryH\x00\x42\x07\n\x05\x66rameJ\x04\x08\x02\x10\x03R\x05\x62\x61tch\"\xad\x01\n\x0ePolicySnapshot\x12&\n\x04mode\x18\x01 \x01(\x0e\x32\x18.adrian.core_api.v1.Mode\x12\x11\n\tpolicy_m0\x18\x02 \x01(\x08\x12\x11\n\tpolicy_m2\x18\x03 \x01(\x08\x12\x11\n\tpolicy_m3\x18\x04 \x01(\x08\x12\x11\n\tpolicy_m4\x18\x05 \x01(\x08\x12\'\n\x1f\x66\x61il_closed_on_classifier_error\x18\x06 \x01(\x08\"*\n\x0cHitlResponse\x12\x1a\n\x12\x63ontinue_execution\x18\x01 \x01(\x08\">\n\x08LoginAck\x12\x32\n\x06policy\x18\x01 \x01(\x0b\x32\".adrian.core_api.v1.PolicySnapshot\"y\n\x0bServerFrame\x12\x31\n\tlogin_ack\x18\x01 \x01(\x0b\x32\x1c.adrian.core_api.v1.LoginAckH\x00\x12.\n\x07verdict\x18\x02 \x01(\x0b\x32\x1b.adrian.core_api.v1.VerdictH\x00\x42\x07\n\x05\x66rame\"\x90\x02\n\x07Verdict\x12\x19\n\x08\x65vent_id\x18\x01 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x1b\n\nsession_id\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x01\x12\x10\n\x08mad_code\x18\x04 \x01(\t\x12\x32\n\x06policy\x18\x06 \x01(\x0b\x32\".adrian.core_api.v1.PolicySnapshot\x12.\n\x04hitl\x18\x07 \x01(\x0b\x32 .adrian.core_api.v1.HitlResponse\x12\x31\n\x06status\x18\x08 \x01(\x0e\x32!.adrian.core_api.v1.VerdictStatusJ\x04\x08\x03\x10\x04J\x04\x08\x05\x10\x06R\x0e\x63lassificationR\x08\x65scalate*L\n\x08PairType\x12\x19\n\x15PAIR_TYPE_UNSPECIFIED\x10\x00\x12\x11\n\rPAIR_TYPE_LLM\x10\x01\x12\x12\n\x0ePAIR_TYPE_TOOL\x10\x02*K\n\x04Mode\x12\x14\n\x10MODE_UNSPECIFIED\x10\x00\x12\x0e\n\nMODE_ALERT\x10\x01\x12\r\n\tMODE_HITL\x10\x02\x12\x0e\n\nMODE_BLOCK\x10\x03*`\n\rVerdictStatus\x12\x1e\n\x1aVERDICT_STATUS_UNSPECIFIED\x10\x00\x12\x15\n\x11VERDICT_STATUS_OK\x10\x01\x12\x18\n\x14VERDICT_STATUS_ERROR\x10\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -56,12 +56,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_VERDICT'].fields_by_name['event_id']._serialized_options = b'\272H\004r\002\020\001'
   _globals['_VERDICT'].fields_by_name['session_id']._loaded_options = None
   _globals['_VERDICT'].fields_by_name['session_id']._serialized_options = b'\272H\004r\002\020\001'
-  _globals['_PAIRTYPE']._serialized_start=2377
-  _globals['_PAIRTYPE']._serialized_end=2453
-  _globals['_MODE']._serialized_start=2455
-  _globals['_MODE']._serialized_end=2530
-  _globals['_VERDICTSTATUS']._serialized_start=2532
-  _globals['_VERDICTSTATUS']._serialized_end=2628
+  _globals['_PAIRTYPE']._serialized_start=2409
+  _globals['_PAIRTYPE']._serialized_end=2485
+  _globals['_MODE']._serialized_start=2487
+  _globals['_MODE']._serialized_end=2562
+  _globals['_VERDICTSTATUS']._serialized_start=2564
+  _globals['_VERDICTSTATUS']._serialized_end=2660
   _globals['_CHATMESSAGE']._serialized_start=64
   _globals['_CHATMESSAGE']._serialized_end=108
   _globals['_TOOLCALL']._serialized_start=110
@@ -75,27 +75,27 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_TOOLPAIRDATA']._serialized_start=562
   _globals['_TOOLPAIRDATA']._serialized_end=657
   _globals['_PAIREDEVENT']._serialized_start=660
-  _globals['_PAIREDEVENT']._serialized_end=1095
-  _globals['_PAIREDEVENTBATCH']._serialized_start=1097
-  _globals['_PAIREDEVENTBATCH']._serialized_end=1164
-  _globals['_MCPSERVER']._serialized_start=1166
-  _globals['_MCPSERVER']._serialized_end=1237
-  _globals['_MCPINVENTORY']._serialized_start=1239
-  _globals['_MCPINVENTORY']._serialized_end=1301
-  _globals['_LLMSTACK']._serialized_start=1303
-  _globals['_LLMSTACK']._serialized_end=1346
-  _globals['_SESSIONLOGIN']._serialized_start=1349
-  _globals['_SESSIONLOGIN']._serialized_end=1483
-  _globals['_CLIENTFRAME']._serialized_start=1486
-  _globals['_CLIENTFRAME']._serialized_end=1693
-  _globals['_POLICYSNAPSHOT']._serialized_start=1696
-  _globals['_POLICYSNAPSHOT']._serialized_end=1869
-  _globals['_HITLRESPONSE']._serialized_start=1871
-  _globals['_HITLRESPONSE']._serialized_end=1913
-  _globals['_LOGINACK']._serialized_start=1915
-  _globals['_LOGINACK']._serialized_end=1977
-  _globals['_SERVERFRAME']._serialized_start=1979
-  _globals['_SERVERFRAME']._serialized_end=2100
-  _globals['_VERDICT']._serialized_start=2103
-  _globals['_VERDICT']._serialized_end=2375
+  _globals['_PAIREDEVENT']._serialized_end=1111
+  _globals['_PAIREDEVENTBATCH']._serialized_start=1113
+  _globals['_PAIREDEVENTBATCH']._serialized_end=1180
+  _globals['_MCPSERVER']._serialized_start=1182
+  _globals['_MCPSERVER']._serialized_end=1253
+  _globals['_MCPINVENTORY']._serialized_start=1255
+  _globals['_MCPINVENTORY']._serialized_end=1317
+  _globals['_LLMSTACK']._serialized_start=1319
+  _globals['_LLMSTACK']._serialized_end=1362
+  _globals['_SESSIONLOGIN']._serialized_start=1365
+  _globals['_SESSIONLOGIN']._serialized_end=1515
+  _globals['_CLIENTFRAME']._serialized_start=1518
+  _globals['_CLIENTFRAME']._serialized_end=1725
+  _globals['_POLICYSNAPSHOT']._serialized_start=1728
+  _globals['_POLICYSNAPSHOT']._serialized_end=1901
+  _globals['_HITLRESPONSE']._serialized_start=1903
+  _globals['_HITLRESPONSE']._serialized_end=1945
+  _globals['_LOGINACK']._serialized_start=1947
+  _globals['_LOGINACK']._serialized_end=2009
+  _globals['_SERVERFRAME']._serialized_start=2011
+  _globals['_SERVERFRAME']._serialized_end=2132
+  _globals['_VERDICT']._serialized_start=2135
+  _globals['_VERDICT']._serialized_end=2407
 # @@protoc_insertion_point(module_scope)
