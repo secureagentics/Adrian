@@ -10,10 +10,11 @@ import (
 // session is per-connection state. Created at WS upgrade time, populated
 // from the LoginAck round-trip, consumed by the read loop.
 type session struct {
-	apiKey      *store.APIKey
-	sessionID   string
-	llmProvider string
-	llmModel    string
+	apiKey       *store.APIKey
+	sessionID    string
+	connectionID string
+	llmProvider  string
+	llmModel     string
 	// source is the SDK / integration identifier from SessionLogin.source
 	// (e.g. "claude-code"). Drives CC-native HITL handling in dispatchVerdict.
 	source   string
@@ -40,4 +41,15 @@ func (s *session) routeOwner() string {
 		return "agent_profile:" + *s.apiKey.AgentProfileID
 	}
 	return "api_key:" + s.apiKey.ID
+}
+
+// routeKey is the Hub key for this connection's verdict subscription: the
+// per-connection connection_id when set, else the session_id. Keying on
+// connection_id lets concurrent connections that share one session_id
+// (parallel Claude Code tool-call hooks) coexist instead of evicting.
+func (s *session) routeKey() string {
+	if s.connectionID != "" {
+		return s.connectionID
+	}
+	return s.sessionID
 }

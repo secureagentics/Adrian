@@ -622,6 +622,11 @@ type PairedEvent struct {
 	//	*PairedEvent_Llm
 	//	*PairedEvent_Tool
 	Data isPairedEvent_Data `protobuf_oneof:"data"`
+	// Per-connection routing id (mirrors SessionLogin.connection_id). When set,
+	// the server routes this connection's verdict on connection_id instead of
+	// session_id, so concurrent connections sharing one session_id (parallel
+	// Claude Code tool-call hooks) do not evict each other.
+	ConnectionId string `protobuf:"bytes,12,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
 	// Escape hatch for framework metadata not modelled as first-class fields
 	// (e.g. LangGraph checkpoint_ns, arbitrary tags).
 	MetadataJson  []byte `protobuf:"bytes,20,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
@@ -746,6 +751,13 @@ func (x *PairedEvent) GetTool() *ToolPairData {
 		}
 	}
 	return nil
+}
+
+func (x *PairedEvent) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
 }
 
 func (x *PairedEvent) GetMetadataJson() []byte {
@@ -1006,7 +1018,13 @@ type SessionLogin struct {
 	SchemaVersion uint32 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	// SDK / integration that produced this session (e.g. "claude-code"); the
 	// server branches HITL behavior on it. Empty for legacy SDKs.
-	Source        string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	Source string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	// Optional per-connection routing id, unique per live WebSocket connection.
+	// When set, the server routes this connection's verdicts on connection_id
+	// instead of session_id (and keys the single-owner guard on it), so multiple
+	// concurrent connections sharing one session_id (parallel Claude Code
+	// tool-call hooks) no longer evict each other.
+	ConnectionId  string `protobuf:"bytes,6,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1065,6 +1083,13 @@ func (x *SessionLogin) GetSchemaVersion() uint32 {
 func (x *SessionLogin) GetSource() string {
 	if x != nil {
 		return x.Source
+	}
+	return ""
+}
+
+func (x *SessionLogin) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
 	}
 	return ""
 }
@@ -1585,7 +1610,7 @@ const file_event_proto_rawDesc = "" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +
 	"toolCallId\x12\x14\n" +
 	"\x05input\x18\x03 \x01(\tR\x05input\x12\x16\n" +
-	"\x06output\x18\x04 \x01(\tR\x06output\"\xa4\x04\n" +
+	"\x06output\x18\x04 \x01(\tR\x06output\"\xc9\x04\n" +
 	"\vPairedEvent\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12#\n" +
 	"\rinvocation_id\x18\x02 \x01(\tR\finvocationId\x12\x1d\n" +
@@ -1600,6 +1625,7 @@ const file_event_proto_rawDesc = "" +
 	"\x03llm\x18\n" +
 	" \x01(\v2\x1f.adrian.core_api.v1.LlmPairDataH\x00R\x03llm\x126\n" +
 	"\x04tool\x18\v \x01(\v2 .adrian.core_api.v1.ToolPairDataH\x00R\x04tool\x12#\n" +
+	"\rconnection_id\x18\f \x01(\tR\fconnectionId\x12#\n" +
 	"\rmetadata_json\x18\x14 \x01(\fR\fmetadataJson\x12\x16\n" +
 	"\x06source\x18\x15 \x01(\tR\x06sourceB\x06\n" +
 	"\x04data\"K\n" +
@@ -1613,13 +1639,14 @@ const file_event_proto_rawDesc = "" +
 	"\aservers\x18\x01 \x03(\v2\x1d.adrian.core_api.v1.McpServerR\aservers\"<\n" +
 	"\bLLMStack\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\x02 \x01(\tR\x05model\"\xb9\x01\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\"\xde\x01\n" +
 	"\fSessionLogin\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x129\n" +
 	"\tllm_stack\x18\x02 \x01(\v2\x1c.adrian.core_api.v1.LLMStackR\bllmStack\x12%\n" +
 	"\x0eschema_version\x18\x04 \x01(\rR\rschemaVersion\x12\x16\n" +
-	"\x06source\x18\x05 \x01(\tR\x06sourceJ\x04\b\x03\x10\x04R\n" +
+	"\x06source\x18\x05 \x01(\tR\x06source\x12#\n" +
+	"\rconnection_id\x18\x06 \x01(\tR\fconnectionIdJ\x04\b\x03\x10\x04R\n" +
 	"block_mode\"\xf1\x01\n" +
 	"\vClientFrame\x128\n" +
 	"\x05login\x18\x01 \x01(\v2 .adrian.core_api.v1.SessionLoginH\x00R\x05login\x12I\n" +

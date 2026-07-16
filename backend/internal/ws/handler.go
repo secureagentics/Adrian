@@ -99,7 +99,7 @@ func serve(ctx context.Context, conn *websocket.Conn, sess *session, st *store.S
 	// verdicts and HITL resolutions land here, drained by the writer
 	// goroutine. The LoginAck is written directly inside handleLogin
 	// (single goroutine, pre-register, no concurrency to serialise).
-	hubCh, deregister, err := hub.Register(sess.sessionID, sess.routeOwner())
+	hubCh, deregister, err := hub.Register(sess.routeKey(), sess.routeOwner())
 	if err != nil {
 		if errors.Is(err, ErrSessionOwnerConflict) {
 			slog.WarnContext(ctx, "ws.session_owner_conflict",
@@ -210,6 +210,7 @@ func handleLogin(ctx context.Context, conn *websocket.Conn, sess *session, st *s
 	}
 
 	sess.sessionID = login.SessionId
+	sess.connectionID = login.GetConnectionId()
 	if login.LlmStack != nil {
 		sess.llmProvider = login.LlmStack.Provider
 		sess.llmModel = login.LlmStack.Model
@@ -409,7 +410,7 @@ func dispatchVerdict(ctx context.Context, sess *session, st *store.Store, hub *H
 			},
 		},
 	}
-	if !hub.Publish(sess.sessionID, out) {
+	if !hub.Publish(sess.routeKey(), out) {
 		slog.WarnContext(ctx, "ws.publish_dropped",
 			"event_id", ev.EventId, "session_id", sess.sessionID)
 	}
