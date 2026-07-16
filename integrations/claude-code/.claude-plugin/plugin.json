@@ -1,0 +1,26 @@
+{
+  "name": "adrian-cc",
+  "description": "Adrian runtime security: observability and blocking for Claude Code sessions",
+  "version": "0.2.0",
+  "author": {
+    "name": "Secure Agentics",
+    "email": "support@secureagentics.ai"
+  },
+  "homepage": "https://github.com/secureagentics/Adrian",
+  "repository": "https://github.com/secureagentics/Adrian",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude-code",
+    "ai-security",
+    "llm-security",
+    "agent-security",
+    "agentic-security",
+    "runtime-security",
+    "prompt-injection",
+    "threat-detection",
+    "ai-governance",
+    "observability",
+    "mcp-security",
+    "self-hosted"
+  ]
+}

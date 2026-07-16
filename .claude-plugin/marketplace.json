@@ -1,0 +1,16 @@
+{
+  "name": "adrian",
+  "owner": {
+    "name": "Secure Agentics",
+    "email": "support@secureagentics.ai"
+  },
+  "description": "Runtime AI-security tooling for Claude Code and agentic AI, from the Adrian OSS project.",
+  "plugins": [
+    {
+      "name": "adrian-cc",
+      "source": "./integrations/claude-code",
+      "description": "Runtime security for Claude Code: hooks-based observability and blocking, backed by the self-hosted Adrian engine.",
+      "strict": true
+    }
+  ]
+}
