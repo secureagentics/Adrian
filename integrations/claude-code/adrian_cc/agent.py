@@ -68,18 +68,30 @@ from adrian_cc.transcript import (
 
 
 def _load_dotenv() -> None:
+    """Load ADRIAN_* config from .env files into the environment.
+
+    Precedence, highest to lowest: a variable already set in the environment,
+    then the project-local ``$CWD/.env``, then ``~/.adrian/.env`` as a global
+    fallback. Both files are read (the global fills only the keys a project
+    .env omits, rather than being skipped whenever a project .env exists), and
+    only ``ADRIAN_``-prefixed keys are ingested so a project's unrelated .env
+    values never leak into this process.
+    """
+    # Project-local first, then the global fallback: the first file to set a
+    # key wins, so a project .env overrides ~/.adrian/.env, and an existing
+    # environment variable overrides both.
     for candidate in [Path.cwd() / ".env", Path.home() / ".adrian" / ".env"]:
-        if candidate.is_file():
-            with open(candidate) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, _, v = line.partition("=")
-                    k, v = k.strip(), v.strip()
-                    if k and k not in os.environ:
-                        os.environ[k] = v
-            break
+        if not candidate.is_file():
+            continue
+        with open(candidate) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip()
+                if k.startswith("ADRIAN_") and k not in os.environ:
+                    os.environ[k] = v
 
 
 _load_dotenv()
