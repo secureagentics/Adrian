@@ -6,6 +6,11 @@ default_install_hook_types: [pre-commit]
 default_language_version:
   python: python3.12
 
+# Vendored third-party deps (protobuf/websockets/certifi bundled into the
+# Claude Code plugin) are committed verbatim; keep every hook off them so no
+# dev needs to remember --no-verify.
+exclude: '^integrations/claude-code/vendor/'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
