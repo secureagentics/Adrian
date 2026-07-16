@@ -28,7 +28,7 @@ models/*
 *.out
 go.work
 go.work.sum
-vendor/
+/backend/vendor/
 
 # Node / Next.js
 node_modules/
