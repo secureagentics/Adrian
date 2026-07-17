@@ -24,7 +24,9 @@
 
 ---
 
-Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security monitoring and control engine for AI agents. It analyses both agent activity logs (tool calls, actions, outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit behaviour, and optionally intervene in-flight. SDKs are available for Python (LangChain) and TypeScript (see [sdk/typescript/README.md](sdk/typescript/README.md)).
+Adrian is an open-source, [AARM-aligned](https://aarm.dev) runtime security monitoring and control engine for AI agents. It analyses both agent activity logs (tool calls, actions, outputs) and reasoning traces to detect malicious, misaligned, or out-of-remit behaviour, and optionally intervene in-flight. SDKs are available for Python (LangChain) and TypeScript ([sdk/typescript/README.md](sdk/typescript/README.md)), plus a native [Claude Code plugin](integrations/claude-code/README.md) that secures every tool call from your terminal.
+
+> **🆕 Claude Code plugin - now live.** Drop Adrian into Claude Code and every tool call is classified in real time, with risky actions blocked or held for your approval right in the terminal. No code changes: install with `/plugin marketplace add secureagentics/Adrian` then `/adrian-init`. Full guide: **[integrations/claude-code/README.md](integrations/claude-code/README.md)**.
 
 <p align="center">
   <a href="https://docs.adrian.secureagentics.ai">Documentation</a> &nbsp;•&nbsp;
@@ -182,10 +184,10 @@ flowchart TD
       <th align="left">Frameworks</th>
       <td>
         <a href="https://www.langchain.com/"><img height="32" src="https://cdn.simpleicons.org/langchain/1FA383" alt="LangChain"></a>&nbsp;&nbsp;
-        <a href="https://platform.openai.com/docs/agents"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logos/openai-dark.svg"><img height="32" src="assets/logos/openai-light.svg" alt="OpenAI Agents SDK"></picture></a>
+        <a href="https://platform.openai.com/docs/agents"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logos/openai-dark.svg"><img height="32" src="assets/logos/openai-light.svg" alt="OpenAI Agents SDK"></picture></a>&nbsp;&nbsp;
+        <a href="https://claude.com/claude-code"><img height="32" src="https://cdn.simpleicons.org/claude/D97757" alt="Claude Code"></a>
       </td>
       <td>
-        <a href="https://claude.com/claude-code"><img height="32" src="https://cdn.simpleicons.org/claude/D97757" alt="Claude Code"></a>&nbsp;<sup>coming soon</sup>&nbsp;&nbsp;
         <a href="https://docs.anthropic.com/"><img height="32" src="https://cdn.simpleicons.org/anthropic/D97757" alt="Anthropic Agents SDK"></a>&nbsp;&nbsp;
         <a href="https://www.crewai.com/"><img height="32" src="https://cdn.simpleicons.org/crewai/FF5A50" alt="CrewAI"></a>&nbsp;&nbsp;
         <a href="https://github.com/openclaw/openclaw"><img height="32" src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/pixel-lobster.svg" alt="OpenClaw"></a>
@@ -206,7 +208,7 @@ flowchart TD
   </tbody>
 </table>
 
-Full list: [Integrations](https://docs.adrian.secureagentics.ai/integrations). Want Claude Code the day it lands? ⭐ the repo or [join Discord](https://discord.gg/Vq2VyYrw8Z).
+Full list: [Integrations](https://docs.adrian.secureagentics.ai/integrations). **New:** the [Claude Code plugin](integrations/claude-code/README.md) is live. ⭐ the repo or [join Discord](https://discord.gg/Vq2VyYrw8Z).
 
 ## Contributing
 
