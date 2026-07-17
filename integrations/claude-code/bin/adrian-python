@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+# Cross-platform launcher for the Adrian Claude Code plugin.
+# Linux/macOS run this directly. On Windows, Claude Code's default hook shell
+# is Git Bash, which runs this too (the adrian-python.cmd sibling covers
+# cmd.exe / PowerShell when Git Bash is absent).
+
+# Plugin root = parent of this bin/ directory.
+PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# adrian_cc lives in the plugin dir; protobuf + websockets are vendored under
+# vendor/ (pure-Python, no compiled extension) so no pip install is needed.
+# Put both on PYTHONPATH, vendor first. Under Git Bash/Cygwin the interpreter is
+# a native Windows Python, which needs Windows-style paths (C:/...) and ';'
+# separators, not the MSYS /c/... form. Force pure-Python protobuf since the
+# vendored copy ships no compiled _upb extension.
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+if command -v cygpath >/dev/null 2>&1; then
+  _adr_vendor="$(cygpath -m "$PLUGIN_DIR/vendor")"
+  _adr_root="$(cygpath -m "$PLUGIN_DIR")"
+  _adr_sep=";"
+else
+  _adr_vendor="$PLUGIN_DIR/vendor"
+  _adr_root="$PLUGIN_DIR"
+  _adr_sep=":"
+fi
+export PYTHONPATH="$_adr_vendor$_adr_sep$_adr_root${PYTHONPATH:+$_adr_sep$PYTHONPATH}"
+
+# Interpreter: plugin-local venv (POSIX or Windows layout), then system
+# python3/python, then the Windows 'py' launcher.
+if [ -x "$PLUGIN_DIR/.venv/bin/python3" ]; then
+  exec "$PLUGIN_DIR/.venv/bin/python3" "$@"
+elif [ -x "$PLUGIN_DIR/.venv/Scripts/python.exe" ]; then
+  exec "$PLUGIN_DIR/.venv/Scripts/python.exe" "$@"
+elif command -v python3 >/dev/null 2>&1; then
+  exec python3 "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$@"
+elif command -v py >/dev/null 2>&1; then
+  exec py -3 "$@"
+else
+  echo "adrian-cc: no Python found (need python3/python or the py launcher)" >&2
+  exit 1
+fi
