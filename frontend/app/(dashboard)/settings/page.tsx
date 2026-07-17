@@ -96,6 +96,7 @@ function PolicyTab() {
     <div className="max-w-lg space-y-4">
       <SelectField
         label="Mode of execution"
+        hint="In Human Review mode, risky actions pause until you approve or reject them. For the Claude Code integration the approval prompt appears right in your terminal (CLI). Every other integration surfaces it here in the dashboard review queue."
         value={policy.mode || 'alert'}
         options={[
           ['alert', 'Alert - verdicts on dashboard only'],
@@ -145,6 +146,9 @@ function PolicyTab() {
         reconnects with the new policy on its next event. Events already
         in-flight at the moment of save are classified against the previous
         policy - expect brief discrepancies for a few seconds after a change.
+        In Human Review mode, Claude Code sessions receive the approval prompt
+        in the terminal (CLI), while all other integrations show it in the
+        dashboard review queue.
       </div>
 
       <div className="flex items-center gap-3">
@@ -168,12 +172,35 @@ function PolicyTab() {
   )
 }
 
-function SelectField({ label, value, options, onChange }: {
-  label: string; value: string; options: string[][]; onChange: (v: string) => void
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1.5 inline-flex align-middle">
+      <span
+        tabIndex={0}
+        aria-label={text}
+        className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-surface-raised text-[10px] font-bold leading-none cursor-help select-none shadow-sm ring-2 ring-surface-raised animate-pulse group-hover:animate-none"
+      >
+        !
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-10 mt-1.5 w-72 rounded-md border border-surface-border bg-surface-raised px-2.5 py-2 text-[12px] font-normal leading-relaxed text-ink-2 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
+
+function SelectField({ label, value, options, onChange, hint }: {
+  label: string; value: string; options: string[][]; onChange: (v: string) => void; hint?: string
 }) {
   return (
     <div>
-      <label className="block text-[12.5px] text-ink-3 mb-1.5">{label}</label>
+      <label className="block text-[12.5px] text-ink-3 mb-1.5">
+        {label}
+        {hint && <InfoTooltip text={hint} />}
+      </label>
       <select value={value} onChange={e => onChange(e.target.value)}
         className="w-full px-3 py-2 border border-surface-border rounded text-sm bg-surface-overlay">
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}

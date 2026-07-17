@@ -319,6 +319,7 @@ class PairedEvent(_message.Message):
     LLM_FIELD_NUMBER: _builtins.int
     TOOL_FIELD_NUMBER: _builtins.int
     METADATA_JSON_FIELD_NUMBER: _builtins.int
+    SOURCE_FIELD_NUMBER: _builtins.int
     event_id: _builtins.str
     """Unique event identifier."""
     invocation_id: _builtins.str
@@ -339,6 +340,7 @@ class PairedEvent(_message.Message):
     """Escape hatch for framework metadata not modelled as first-class fields
     (e.g. LangGraph checkpoint_ns, arbitrary tags).
     """
+    source: _builtins.str
     @_builtins.property
     def agent(self) -> Global___AgentContext:
         """The agent that produced this pair."""
@@ -370,10 +372,11 @@ class PairedEvent(_message.Message):
         llm: Global___LlmPairData | None = ...,
         tool: Global___ToolPairData | None = ...,
         metadata_json: _builtins.bytes = ...,
+        source: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["agent", b"agent", "data", b"data", "llm", b"llm", "parent", b"parent", "tool", b"tool"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent", b"agent", "data", b"data", "event_id", b"event_id", "invocation_id", b"invocation_id", "llm", b"llm", "metadata_json", b"metadata_json", "pair_type", b"pair_type", "parent", b"parent", "parent_run_id", b"parent_run_id", "run_id", b"run_id", "session_id", b"session_id", "timestamp", b"timestamp", "tool", b"tool"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent", b"agent", "data", b"data", "event_id", b"event_id", "invocation_id", b"invocation_id", "llm", b"llm", "metadata_json", b"metadata_json", "pair_type", b"pair_type", "parent", b"parent", "parent_run_id", b"parent_run_id", "run_id", b"run_id", "session_id", b"session_id", "source", b"source", "timestamp", b"timestamp", "tool", b"tool"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType_data: _TypeAlias = _typing.Literal["llm", "tool"]  # noqa: Y015
     _WhichOneofArgType_data: _TypeAlias = _typing.Literal["data", b"data"]  # noqa: Y015
@@ -500,10 +503,15 @@ class SessionLogin(_message.Message):
     SESSION_ID_FIELD_NUMBER: _builtins.int
     LLM_STACK_FIELD_NUMBER: _builtins.int
     SCHEMA_VERSION_FIELD_NUMBER: _builtins.int
+    SOURCE_FIELD_NUMBER: _builtins.int
     session_id: _builtins.str
     """Session identifier."""
     schema_version: _builtins.int
     """Wire schema version the client is speaking.  Server rejects unknown values."""
+    source: _builtins.str
+    """SDK / integration that produced this session (e.g. "claude-code"); the
+    server branches HITL behavior on it. Empty for legacy SDKs.
+    """
     @_builtins.property
     def llm_stack(self) -> Global___LLMStack:
         """LLM stack information for this session."""
@@ -514,10 +522,11 @@ class SessionLogin(_message.Message):
         session_id: _builtins.str = ...,
         llm_stack: Global___LLMStack | None = ...,
         schema_version: _builtins.int = ...,
+        source: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["llm_stack", b"llm_stack"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["llm_stack", b"llm_stack", "schema_version", b"schema_version", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["llm_stack", b"llm_stack", "schema_version", b"schema_version", "session_id", b"session_id", "source", b"source"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
