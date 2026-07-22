@@ -42,6 +42,7 @@ import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -49,16 +50,25 @@ from adrian.config import AdrianConfig
 from adrian.context import get_invocation_id, set_invocation_id
 from adrian.format.types import AgentContext, LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
+from adrian.proto import event_pb2 as pb
 from adrian.types import ChatMessage, EventData, TokenUsage, ToolCallRecord
 
 if TYPE_CHECKING:
     from contextvars import Token
 
+    from adrian.ws import WebSocketClient
+
 logger = logging.getLogger("adrian.anthropic")
+
+# Content substituted for a tool_use block whose verdict says halt.  A text
+# block (rather than a raised error) keeps the response usable and lets the
+# model see that its action was stopped, mirroring the LangChain gate.
+_BLOCKED_CONTENT = "[BLOCKED by security policy]"
 
 # Set once by patch_anthropic(); read at call time so shutdown + re-init works.
 _hooks_getter: Callable[[], HookRegistry | None] | None = None
 _config_getter: Callable[[], AdrianConfig | None] | None = None
+_ws_getter: Callable[[], WebSocketClient | None] | None = None
 
 
 # ------------------------------------------------------------------
@@ -424,6 +434,195 @@ def _schedule_emit(response: Any, kwargs: dict[str, Any]) -> None:
 
 
 # ------------------------------------------------------------------
+# Verdict gate (MODE_BLOCK / MODE_HITL)
+# ------------------------------------------------------------------
+
+
+def _should_halt(verdict: pb.Verdict) -> bool:
+    """Decide whether a verdict should halt a tool call.
+
+    Kept local to this module so the Anthropic integration does not depend on
+    the LangChain handler; the logic mirrors ``langchain_handler._should_halt``.
+    HITL resolutions override per-MAD policy when present.
+
+    Args:
+        verdict: The classifier verdict for the producing LLM event.
+
+    Returns:
+        ``True`` when the tool call must be blocked.
+    """
+    if verdict.HasField("hitl"):
+        return not verdict.hitl.continue_execution
+
+    mad_prefix = verdict.mad_code[:2]
+    return {
+        "M0": verdict.policy.policy_m0,
+        "M2": verdict.policy.policy_m2,
+        "M3": verdict.policy.policy_m3,
+        "M4": verdict.policy.policy_m4,
+    }.get(mad_prefix, False)
+
+
+def _blocked_text_block(original_block: Any) -> Any:  # noqa: ANN401
+    """Build a text block used to replace a blocked ``tool_use`` block.
+
+    Matches the shape of ``original_block`` so the rewritten response stays
+    consistent: a dict block is replaced with a dict, an SDK block with a real
+    ``anthropic.types.TextBlock`` when the package is importable, falling back
+    to a lightweight attribute shim otherwise (e.g. under test).
+
+    Args:
+        original_block: The ``tool_use`` block being replaced.
+
+    Returns:
+        A ``"text"`` block carrying :data:`_BLOCKED_CONTENT`.
+    """
+    if isinstance(original_block, dict):
+        return {"type": "text", "text": _BLOCKED_CONTENT}
+
+    try:
+        from anthropic.types import TextBlock
+
+        return TextBlock(type="text", text=_BLOCKED_CONTENT)
+    except Exception:  # noqa: BLE001 - anthropic missing or signature drift
+        return SimpleNamespace(type="text", text=_BLOCKED_CONTENT)
+
+
+def _rewrite_blocked_response(response: Any, blocked_ids: set[str]) -> Any:  # noqa: ANN401
+    """Replace blocked ``tool_use`` blocks in a response with ``[BLOCKED]`` text.
+
+    Rebuilds ``response.content`` in place, swapping every ``tool_use`` block
+    whose id is in ``blocked_ids`` for a text block.  When no ``tool_use`` block
+    survives, ``stop_reason`` is downgraded from ``"tool_use"`` to ``"end_turn"``
+    so the caller's agent loop terminates cleanly instead of expecting a tool
+    result.
+
+    Args:
+        response: Anthropic ``Message`` response object.
+        blocked_ids: ``tool_use`` block ids to replace.
+
+    Returns:
+        The same ``response`` object, mutated.
+    """
+    content: list[Any] = getattr(response, "content", [])
+    new_content: list[Any] = []
+    tool_use_remains = False
+
+    for block in content:
+        if isinstance(block, dict):
+            btype = block.get("type")
+            bid = str(block.get("id", ""))
+        else:
+            btype = getattr(block, "type", None)
+            bid = str(getattr(block, "id", ""))
+
+        if btype == "tool_use" and bid in blocked_ids:
+            new_content.append(_blocked_text_block(block))
+        else:
+            new_content.append(block)
+            if btype == "tool_use":
+                tool_use_remains = True
+
+    response.content = new_content
+
+    if not tool_use_remains and getattr(response, "stop_reason", None) == "tool_use":
+        response.stop_reason = "end_turn"
+
+    return response
+
+
+async def _gate_response(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa: ANN401
+    """Hold a response on the classifier verdict before returning it.
+
+    Runs after :func:`_emit_pair` (which registers the pending verdict future
+    for the producing LLM event).  In ``MODE_ALERT`` / unset state the response
+    passes through unchanged.  In ``MODE_BLOCK`` / ``MODE_HITL`` each
+    ``tool_use`` block waits for its verdict; blocked blocks are rewritten to a
+    ``[BLOCKED]`` text block.
+
+    Fail-closed rules match the LangChain gate: a missing ``LoginAck`` within 5s
+    blocks all tool calls, and in ``MODE_BLOCK`` a verdict timeout blocks the
+    tool call (absence of a verdict is a policy violation).  ``MODE_HITL`` waits
+    indefinitely.
+
+    Args:
+        response: Anthropic ``Message`` response object.
+        kwargs: Original ``messages.create`` keyword arguments (unused; kept for
+            symmetry with :func:`_emit_pair`).
+
+    Returns:
+        The response, rewritten in place when any tool call was blocked.
+    """
+    if _ws_getter is None:
+        return response
+
+    ws = _ws_getter()
+
+    if ws is None:
+        return response
+
+    content: Any = getattr(response, "content", None)
+
+    if not isinstance(content, list):
+        return response
+
+    tool_ids = [
+        rec["id"] for rec in _extract_anthropic_tool_calls(content) if rec["id"]
+    ]
+
+    if not tool_ids:
+        return response
+
+    # Refuse to run without a verified policy: block if LoginAck is late.
+    if not ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+        try:
+            await asyncio.wait_for(
+                ws._login_ack_received.wait(),  # pyright: ignore[reportPrivateUsage]
+                timeout=5.0,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Anthropic gate: LoginAck not received within 5s; "
+                "blocking all tool calls (refusing to run without policy)"
+            )
+            return _rewrite_blocked_response(response, set(tool_ids))
+
+    # ALERT / unset: observe only, no gating.
+    if not ws.policy_active():
+        return response
+
+    config = _config_getter() if _config_getter is not None else None
+    timeout = ws.block_timeout(config.block_timeout if config else 30.0)
+
+    blocked: set[str] = set()
+
+    for tc_id in tool_ids:
+        verdict = await ws.wait_for_tool_call_verdict(tc_id, timeout)
+
+        if verdict is None:
+            # Fail-closed in block mode: no verdict = block.
+            logger.warning(
+                "Anthropic gate: verdict timeout for tool_call_id=%s; "
+                "blocking (fail-closed in MODE_BLOCK)",
+                tc_id,
+            )
+            blocked.add(tc_id)
+        elif _should_halt(verdict):
+            logger.warning(
+                "Anthropic gate: halting tool_call_id=%s event_id=%s mad_code=%s",
+                tc_id,
+                verdict.event_id,
+                verdict.mad_code,
+            )
+            blocked.add(tc_id)
+
+    if blocked:
+        return _rewrite_blocked_response(response, blocked)
+
+    return response
+
+
+# ------------------------------------------------------------------
 # SDK patching
 # ------------------------------------------------------------------
 
@@ -431,11 +630,14 @@ def _schedule_emit(response: Any, kwargs: dict[str, Any]) -> None:
 def patch_anthropic(
     hooks_getter: Callable[[], HookRegistry | None],
     config_getter: Callable[[], AdrianConfig | None],
+    ws_getter: Callable[[], WebSocketClient | None] | None = None,
 ) -> None:
     """Monkey-patch ``anthropic.Anthropic`` and ``anthropic.AsyncAnthropic``.
 
     Wraps ``messages.create`` on both the sync and async Anthropic resource
-    classes so every API call is captured as an Adrian ``PairedEvent``.
+    classes so every API call is captured as an Adrian ``PairedEvent``.  On the
+    async path, calls are additionally gated on the classifier verdict under
+    ``MODE_BLOCK`` / ``MODE_HITL`` (see :func:`_gate_response`).
 
     The patch is idempotent: subsequent calls update the internal getters but
     do not re-wrap the already-patched method.  If the ``anthropic`` package is
@@ -449,11 +651,15 @@ def patch_anthropic(
             or ``None`` when the SDK is not initialised.
         config_getter: Zero-arg callable returning the current ``AdrianConfig``,
             or ``None`` when the SDK is not initialised.
+        ws_getter: Zero-arg callable returning the current ``WebSocketClient``,
+            or ``None``.  Required for verdict gating; when absent the handler
+            stays audit-only (ALERT-mode behaviour).
     """
-    global _hooks_getter, _config_getter  # noqa: PLW0603
+    global _hooks_getter, _config_getter, _ws_getter  # noqa: PLW0603
 
     _hooks_getter = hooks_getter
     _config_getter = config_getter
+    _ws_getter = ws_getter
 
     try:
         from anthropic.resources.messages import AsyncMessages, Messages
@@ -499,8 +705,11 @@ def patch_anthropic(
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = await _original_async(self, *args, **kwargs)
+                # Emit first so the verdict future is registered, then gate:
+                # under BLOCK/HITL this holds the response until the verdict
+                # arrives and rewrites blocked tool calls to a [BLOCKED] block.
                 await _emit_pair(response, kwargs)
-                return response
+                return await _gate_response(response, kwargs)
 
             async_cls.create = _patched_async_create  # type: ignore[method-assign]
             async_cls._adrian_patched = True  # type: ignore[attr-defined]

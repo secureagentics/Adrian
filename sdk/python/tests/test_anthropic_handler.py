@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock
+import asyncio
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import adrian.anthropic_handler as _ah
 import pytest
 from adrian.anthropic_handler import (
+    _BLOCKED_CONTENT,
+    _blocked_text_block,
     _derive_agent_id,
     _emit_pair,
     _extract_anthropic_tool_calls,
@@ -21,6 +24,9 @@ from adrian.anthropic_handler import (
     _extract_response_text,
     _flatten_anthropic_messages,
     _flatten_content,
+    _gate_response,
+    _rewrite_blocked_response,
+    _should_halt,
     anthropic_invocation,
     anthropic_invocation_sync,
     build_anthropic_llm_pair,
@@ -30,7 +36,9 @@ from adrian.config import AdrianConfig
 from adrian.context import get_invocation_id, set_invocation_id
 from adrian.format.types import LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
+from adrian.proto import event_pb2 as pb
 from adrian.types import ChatMessage
+from adrian.ws import WebSocketClient
 
 # ------------------------------------------------------------------
 # Shared helpers
@@ -736,3 +744,380 @@ class TestAnthropicInvocationContext:
             ids.append(get_invocation_id() or "")
 
         assert ids[0] != ids[1]
+
+
+# ------------------------------------------------------------------
+# Verdict gate (MODE_BLOCK / MODE_HITL)
+# ------------------------------------------------------------------
+
+
+def _apply_mode(
+    ws: WebSocketClient,
+    mode: int,
+    *,
+    policy_m0: bool = False,
+    policy_m2: bool = False,
+    policy_m3: bool = False,
+    policy_m4: bool = False,
+) -> pb.PolicySnapshot:
+    """Drive the ws mode/policy state as if a LoginAck had arrived."""
+    policy = pb.PolicySnapshot(
+        mode=cast("pb.Mode", mode),
+        policy_m0=policy_m0,
+        policy_m2=policy_m2,
+        policy_m3=policy_m3,
+        policy_m4=policy_m4,
+    )
+    ws._mode = mode  # pyright: ignore[reportPrivateUsage]
+    ws._policy = policy  # pyright: ignore[reportPrivateUsage]
+    ws._login_ack_received.set()  # pyright: ignore[reportPrivateUsage]
+    return policy
+
+
+def _make_tool_response(
+    *,
+    tool_id: str = "tc-1",
+    tool_name: str = "run_shell",
+    stop_reason: str = "tool_use",
+    as_dict: bool = False,
+    with_text: bool = False,
+) -> MagicMock:
+    """Build a mock Anthropic Message carrying a single ``tool_use`` block."""
+    if as_dict:
+        tool_block: Any = {
+            "type": "tool_use",
+            "id": tool_id,
+            "name": tool_name,
+            "input": {"cmd": "ls"},
+        }
+    else:
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.id = tool_id
+        tool_block.name = tool_name
+        tool_block.input = {"cmd": "ls"}
+
+    content: list[Any] = []
+    if with_text:
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Let me run that."
+        content.append(text_block)
+    content.append(tool_block)
+
+    response = MagicMock()
+    response.model = "claude-opus-4-6"
+    response.content = content
+    response.stop_reason = stop_reason
+    usage = MagicMock()
+    usage.input_tokens = 1
+    usage.output_tokens = 1
+    response.usage = usage
+    return response
+
+
+def _wire_gate(ws: WebSocketClient | None, config: AdrianConfig | None) -> None:
+    """Wire the ws / config getters the gate reads at call time."""
+    _ah._ws_getter = (lambda: ws) if ws is not None else (lambda: None)
+    _ah._config_getter = (lambda: config) if config is not None else (lambda: None)
+
+
+def _block_types(response: Any) -> list[str]:  # noqa: ANN401
+    """Return the ``type`` of each content block, dict- or object-shaped."""
+    out: list[str] = []
+    for block in response.content:
+        out.append(block["type"] if isinstance(block, dict) else block.type)
+    return out
+
+
+class TestVerdictGate:
+    @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
+    def _reset_getters(self) -> Any:  # noqa: ANN401
+        """Reset module getters so gate wiring never leaks between tests."""
+        yield
+        _ah._ws_getter = None
+        _ah._config_getter = None
+        _ah._hooks_getter = None
+
+    async def test_alert_mode_passes_through(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_ALERT)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        response = _make_tool_response()
+        result = await _gate_response(response, {})
+
+        # ALERT observes only: tool_use survives untouched.
+        assert _block_types(result) == ["tool_use"]
+
+    async def test_no_ws_passes_through(self) -> None:
+        _wire_gate(None, AdrianConfig(session_id="s"))
+        response = _make_tool_response()
+        result = await _gate_response(response, {})
+        assert _block_types(result) == ["tool_use"]
+
+    async def test_no_tool_calls_passes_through(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        response = _make_text_response(text="Just text.")
+        result = await _gate_response(response, {})
+        assert _block_types(result) == ["text"]
+
+    async def test_block_halt_rewrites_tool_use(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy))
+
+        response = _make_tool_response()
+        result = await _gate_response(response, {})
+
+        assert _block_types(result) == ["text"]
+        assert result.content[0].text == _BLOCKED_CONTENT
+        # No tool_use survives -> stop_reason downgraded.
+        assert result.stop_reason == "end_turn"
+
+    async def test_block_allow_passes_through(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        # M4 policy inactive -> verdict does not halt.
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=False)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy))
+
+        response = _make_tool_response()
+        result = await _gate_response(response, {})
+
+        assert _block_types(result) == ["tool_use"]
+        assert result.stop_reason == "tool_use"
+
+    async def test_block_verdict_timeout_fails_closed(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        # Tiny timeout so the fail-closed path resolves fast.
+        _wire_gate(ws, AdrianConfig(session_id="s", block_timeout=0.05))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        ws.register_pending("llm-evt")  # never resolved -> times out
+
+        response = _make_tool_response()
+        result = await _gate_response(response, {})
+
+        assert _block_types(result) == ["text"]
+        assert result.content[0].text == _BLOCKED_CONTENT
+
+    async def test_partial_block_keeps_other_tool_use(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        # Two tool calls sharing one producing LLM event; only tc-1 blocked
+        # (tc-2 has no verdict mapping -> ... also None -> blocked). To isolate
+        # "one blocked, one allowed" we map both and resolve distinct verdicts.
+        ws._tool_call_id_to_event_id["tc-1"] = "evt-a"  # pyright: ignore[reportPrivateUsage]
+        ws._tool_call_id_to_event_id["tc-2"] = "evt-b"  # pyright: ignore[reportPrivateUsage]
+        halt = ws.register_pending("evt-a")
+        halt.set_result(pb.Verdict(event_id="evt-a", mad_code="M4_a", policy=policy))
+        allow_policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=False)
+        ok = ws.register_pending("evt-b")
+        ok.set_result(
+            pb.Verdict(event_id="evt-b", mad_code="M4_a", policy=allow_policy)
+        )
+
+        blocked_tool = MagicMock()
+        blocked_tool.type = "tool_use"
+        blocked_tool.id = "tc-1"
+        blocked_tool.name = "danger"
+        blocked_tool.input = {}
+        ok_tool = MagicMock()
+        ok_tool.type = "tool_use"
+        ok_tool.id = "tc-2"
+        ok_tool.name = "safe"
+        ok_tool.input = {}
+        response = MagicMock()
+        response.content = [blocked_tool, ok_tool]
+        response.stop_reason = "tool_use"
+
+        result = await _gate_response(response, {})
+
+        assert _block_types(result) == ["text", "tool_use"]
+        assert result.content[0].text == _BLOCKED_CONTENT
+        assert result.content[1].id == "tc-2"
+        # A tool_use still remains -> stop_reason preserved.
+        assert result.stop_reason == "tool_use"
+
+    async def test_dict_shaped_block_rewritten_as_dict(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy))
+
+        response = _make_tool_response(as_dict=True)
+        result = await _gate_response(response, {})
+
+        assert result.content[0] == {"type": "text", "text": _BLOCKED_CONTENT}
+
+    async def test_hitl_reject_blocks(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_HITL, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+        verdict = pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
+        verdict.hitl.continue_execution = False
+        fut.set_result(verdict)
+
+        result = await _gate_response(_make_tool_response(), {})
+        assert result.content[0].text == _BLOCKED_CONTENT
+
+    async def test_hitl_approve_passes_through(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_HITL, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+        verdict = pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
+        verdict.hitl.continue_execution = True
+        fut.set_result(verdict)
+
+        result = await _gate_response(_make_tool_response(), {})
+        assert _block_types(result) == ["tool_use"]
+
+    async def test_hitl_holds_until_human_then_blocks(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_HITL, policy_m4=True)
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"  # pyright: ignore[reportPrivateUsage]
+        fut = ws.register_pending("llm-evt")
+
+        gate = asyncio.ensure_future(_gate_response(_make_tool_response(), {}))
+        # Gate must still be waiting: no verdict resolved yet.
+        await asyncio.sleep(0.05)
+        assert not gate.done()
+
+        verdict = pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
+        verdict.hitl.continue_execution = False
+        fut.set_result(verdict)
+
+        result = await gate
+        assert result.content[0].text == _BLOCKED_CONTENT
+
+    async def test_emit_then_gate_end_to_end(self) -> None:
+        """The real seam: _emit_pair populates the verdict map the gate reads.
+
+        Rather than hand-populating ``_tool_call_id_to_event_id`` and
+        pre-registering the future (as the unit tests do), this drives the
+        actual emission path -- ``_emit_pair`` -> ``hooks.emit`` ->
+        ``ws.on_paired_event`` -- with only the network send stubbed, then
+        verifies the gate finds the verdict and rewrites the blocked call.
+        """
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._send_frame = AsyncMock()  # pyright: ignore[reportPrivateUsage] - no network
+
+        hooks = HookRegistry()
+        hooks.register(ws)
+        _ah._hooks_getter = lambda: hooks
+        _wire_gate(ws, AdrianConfig(session_id="s"))
+
+        response = _make_tool_response(tool_id="tc-1")
+        kwargs: dict[str, Any] = {
+            "model": "claude-opus-4-6",
+            "messages": [{"role": "user", "content": "run it"}],
+        }
+
+        # Emission maps tc-1 -> event_id and pre-registers the wait future.
+        await _emit_pair(response, kwargs)
+        event_id = ws._tool_call_id_to_event_id["tc-1"]  # pyright: ignore[reportPrivateUsage]
+        ws._pending_verdicts[event_id].set_result(  # pyright: ignore[reportPrivateUsage]
+            pb.Verdict(event_id=event_id, mad_code="M4_a", policy=policy)
+        )
+
+        result = await _gate_response(response, kwargs)
+
+        assert result.content[0].text == _BLOCKED_CONTENT
+        assert result.stop_reason == "end_turn"
+        ws._send_frame.assert_awaited()  # pyright: ignore[reportPrivateUsage]
+
+    async def test_patch_anthropic_stores_ws_getter(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        patch_anthropic(
+            hooks_getter=lambda: None,
+            config_getter=lambda: None,
+            ws_getter=lambda: ws,
+        )
+        assert _ah._ws_getter is not None
+        assert _ah._ws_getter() is ws
+
+
+class TestShouldHalt:
+    def test_hitl_reject_halts(self) -> None:
+        v = pb.Verdict(event_id="e", mad_code="M4_a")
+        v.hitl.continue_execution = False
+        assert _should_halt(v) is True
+
+    def test_hitl_approve_does_not_halt(self) -> None:
+        v = pb.Verdict(event_id="e", mad_code="M4_a")
+        v.hitl.continue_execution = True
+        assert _should_halt(v) is False
+
+    def test_policy_flag_on_halts(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=True)
+        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
+        assert _should_halt(v) is True
+
+    def test_policy_flag_off_does_not_halt(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=False)
+        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
+        assert _should_halt(v) is False
+
+    def test_unknown_mad_prefix_does_not_halt(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=True)
+        v = pb.Verdict(event_id="e", mad_code="M9_z", policy=policy)
+        assert _should_halt(v) is False
+
+
+class TestBlockedTextBlock:
+    def test_dict_block_returns_dict(self) -> None:
+        result = _blocked_text_block({"type": "tool_use", "id": "x"})
+        assert result == {"type": "text", "text": _BLOCKED_CONTENT}
+
+    def test_object_block_returns_text_shaped_object(self) -> None:
+        original = MagicMock()
+        original.type = "tool_use"
+        result = _blocked_text_block(original)
+        assert result.type == "text"
+        assert result.text == _BLOCKED_CONTENT
+
+
+class TestRewriteBlockedResponse:
+    def test_downgrades_stop_reason_when_no_tool_use_left(self) -> None:
+        block = {"type": "tool_use", "id": "tc-1", "name": "x", "input": {}}
+        response = MagicMock()
+        response.content = [block]
+        response.stop_reason = "tool_use"
+        _rewrite_blocked_response(response, {"tc-1"})
+        assert response.stop_reason == "end_turn"
+
+    def test_preserves_unblocked_blocks(self) -> None:
+        keep = {"type": "text", "text": "hi"}
+        drop = {"type": "tool_use", "id": "tc-1", "name": "x", "input": {}}
+        response = MagicMock()
+        response.content = [keep, drop]
+        response.stop_reason = "tool_use"
+        _rewrite_blocked_response(response, {"tc-1"})
+        assert response.content[0] == keep
+        assert response.content[1] == {"type": "text", "text": _BLOCKED_CONTENT}
