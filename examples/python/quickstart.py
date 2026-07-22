@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian quickstart: a single async LLM call captured by the SDK.
 
 The simplest possible agent code Adrian can monitor: a bare

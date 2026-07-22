@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Event pair buffer.
 
 Buffers start events (chat_model_start, tool_start) and assembles

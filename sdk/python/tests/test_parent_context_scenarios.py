@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """End-to-end parent-context derivation per multi-agent scenario (S1-S8).
 
 Fires the LangChain-shaped callback sequence each scenario produces -

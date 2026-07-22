@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Tests for the WebSocket client, new PairedEvent format."""
 
 # pyright: reportPrivateUsage=false

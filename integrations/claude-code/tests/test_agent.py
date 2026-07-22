@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 # pyright: reportPrivateUsage=false
 """Tests for the hook agent - event building, verdict handling, mode logic."""
 

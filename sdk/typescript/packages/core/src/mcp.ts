@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { currentConfig, isInitialized } from "./config.js";
 import type { McpServer } from "./types.js";
 

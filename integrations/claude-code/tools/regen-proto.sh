@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 # Regenerate adrian_cc/proto/event_pb2.py + event_pb2.pyi from the repo-root
 # canonical proto (//proto/event.proto) so the plugin's vendored bindings never
 # drift from the wire format the backend and Python SDK share. This mirrors the

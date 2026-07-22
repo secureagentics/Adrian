@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { randomUUID } from "node:crypto";
 import type { AgentContext, PairedEvent, ParentContext } from "./format/types.js";
 import type { CallbackMetadata, ChatModelStartData, LlmEndData, ToolEndData, ToolStartData } from "./types.js";

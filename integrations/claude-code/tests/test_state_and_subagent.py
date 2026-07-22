@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 # pyright: reportPrivateUsage=false
 """Tests for the state locking/atomic-write machinery, the sub-agent hierarchy
 stack helpers, and the deterministic transcript-by-agent_id prompt recovery."""

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Integration tests - full hook flow against the live Adrian backend.
 
 These tests require the Adrian backend running on localhost:8080 with

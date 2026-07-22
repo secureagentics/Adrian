@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as adrianCore from "@secureagentics/adrian";
 import { BLOCKED_TOOL_MESSAGE, Mode, type EventData, type PairedEvent, type Verdict, type WebSocketClient } from "@secureagentics/adrian";

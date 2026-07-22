@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import type { AdrianCallbackHandler } from "./handler.js";
 import type { WebSocketClient } from "./ws.js";
 

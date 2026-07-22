@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { describe, expect, it } from "vitest";
 import { EventPairBuffer } from "../src/pairing.js";
 

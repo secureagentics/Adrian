@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Stateful tracker for Claude Code sessions.
 
 Maintains three pieces of state across hook calls within a daemon:

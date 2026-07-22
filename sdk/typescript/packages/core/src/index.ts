@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { resolveInitOptions, setConfig, type AdrianConfig, type InitOptions } from "./config.js";
 import { AgentContextTracker } from "./context.js";
 import { AdrianCallbackHandler } from "./handler.js";

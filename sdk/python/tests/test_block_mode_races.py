@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Block-mode correctness tests under multi-agent scenarios.
 
 Each test simulates the PairedEvent stream that each S1-S8 scenario would

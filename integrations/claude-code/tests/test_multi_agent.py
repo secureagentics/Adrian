@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Multi-agent integration tests - nested sub-agents, parallel agents, full DB verification.
 
 Tests the complete flow: Claude Code → Plugin → Adrian Backend with

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """PII detection patterns.
 
 Compiled regex patterns for common PII types found in AI agent

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Centralised callback firing helper.
 
 The SDK has a family of optional user-supplied callbacks (``on_event``,

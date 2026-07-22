@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian with manual instrumentation (``auto_instrument=False``).
 
 Mirrors :mod:`quickstart` but opts out of the SDK's import-time

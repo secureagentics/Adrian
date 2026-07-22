@@ -42,9 +42,12 @@ See [`sdk/typescript/README.md`](sdk/typescript/README.md) for usage examples.
 
 After `pre-commit install`, every `git commit` runs the configured hooks on
 staged files: `ruff format`, `ruff check --fix`, `basedpyright` on
-`sdk/python/adrian/`, plus the standard whitespace / YAML / TOML checks. Hooks that
-modify files (formatter, autofix) leave the commit aborted; re-stage the files
-and commit again.
+`sdk/python/adrian/`, plus the standard whitespace / YAML / TOML checks. A
+licence-header hook prepends the Apache-2.0 SPDX header to any staged Go,
+Python, TypeScript, JavaScript, proto or shell file that lacks one (vendored
+code and generated proto bindings excluded). Hooks that
+modify files (formatter, autofix, header) leave the commit aborted; re-stage
+the files and commit again.
 
 To run the hooks across the whole tree on demand without committing:
 
@@ -53,7 +56,8 @@ pre-commit run --all-files
 ```
 
 The config lives at [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
-Only Python files under `sdk/python/` and `scripts/` are in scope.
+Formatting and lint hooks cover Python under `sdk/python/` and `scripts/`;
+the licence-header hook covers source files repo-wide.
 
 ## Style
 

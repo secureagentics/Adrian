@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 /**
  * Adrian Human Review example (TypeScript): human-in-the-loop tool gating.
  *

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """PII detection and redaction for Adrian events.
 
 Provides standalone ``redact_text()`` for arbitrary strings and

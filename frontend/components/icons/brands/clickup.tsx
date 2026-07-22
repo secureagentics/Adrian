@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 // ClickUp uses a three-color gradient mark. Inline SVG keeps the gradient
 // IDs scoped via a stable unique suffix to avoid clashes when the icon is
 // rendered multiple times on the same page.

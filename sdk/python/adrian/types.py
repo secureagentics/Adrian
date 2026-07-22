@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Typed event schema for Adrian SDK.
 
 Defines TypedDict classes matching the Adrian protobuf schema.  These serve as

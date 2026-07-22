@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { detect, type Detection, type PiiType } from "./patterns.js";
 import { applyStrategy, RedactionStrategy } from "./strategies.js";
 

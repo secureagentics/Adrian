@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { describe, expect, it } from "vitest";
 import { redactText, PiiType, RedactionStrategy } from "../src/pii/index.js";
 import { applyStrategy } from "../src/pii/strategies.js";

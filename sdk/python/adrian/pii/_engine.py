@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Standalone PII detection and redaction engine.
 
 Provides ``redact_text``, usable independently of the Adrian SDK.

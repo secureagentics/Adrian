@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Tests for adrian.session_persistence, per-cwd session_id storage."""
 
 # pyright: reportPrivateUsage=false

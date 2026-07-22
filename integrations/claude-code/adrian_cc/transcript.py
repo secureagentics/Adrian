@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Transcript parser - extracts reasoning, user prompts, and invocation context.
 
 Claude Code's transcript is a JSONL file where each line is a

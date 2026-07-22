@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PairedEvent } from "../src/format/types.js";
 import { Mode, type Verdict } from "../src/proto/schema.js";

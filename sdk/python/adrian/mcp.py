@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """MCP server tracking for LangChain agents.
 
 Maintains a per-process aggregate of the MCP servers an agent is

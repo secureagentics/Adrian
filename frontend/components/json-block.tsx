@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 // JsonBlock renders a value as a pretty-printed, syntax-highlighted
 // <pre>. Tokenises the JSON.stringify output with a single regex
 // pass and wraps each token in a span with a Tailwind colour class:

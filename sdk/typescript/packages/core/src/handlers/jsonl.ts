@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { PairedEvent } from "../format/types.js";

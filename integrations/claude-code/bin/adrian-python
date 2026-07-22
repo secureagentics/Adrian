@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
 # Cross-platform launcher for the Adrian Claude Code plugin.
 # Linux/macOS run this directly. On Windows, Claude Code's default hook shell
 # is Git Bash, which runs this too (the adrian-python.cmd sibling covers

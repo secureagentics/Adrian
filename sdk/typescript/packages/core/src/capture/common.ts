@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { randomUUID } from "node:crypto";
 import type { AdrianCallbackHandler } from "../handler.js";
 import { getInvocationId, runWithInvocationId } from "../context.js";

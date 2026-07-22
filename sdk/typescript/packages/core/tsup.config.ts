@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
 

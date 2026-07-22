@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Agent identity dispatcher.
 
 Derives an ``agent_id`` from callback metadata using framework-specific

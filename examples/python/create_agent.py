@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian with a LangChain agent (``create_agent``).
 
 The current LangChain agent constructor

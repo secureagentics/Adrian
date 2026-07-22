@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian SDK configuration.
 
 Transport (WebSocket, HTTP) is not managed by the SDK, it is handled

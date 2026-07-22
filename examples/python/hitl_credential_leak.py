@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian Human Review example: human-in-the-loop tool gating.
 
 Builds a small LangGraph agent (gpt-4o-mini + a ``send_email`` tool)

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Async WebSocket ``EventHandler`` that streams ``PairedEvent`` to the worker core API.
 
 Converts each ``PairedEvent`` into a ``pb.PairedEvent`` protobuf, wraps it in a

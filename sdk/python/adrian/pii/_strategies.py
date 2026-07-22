@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """PII redaction strategies.
 
 Each strategy transforms a ``Detection``'s matched text into a

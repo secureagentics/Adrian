@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """PairedEvent PII redactor.
 
 Applies PII redaction to text fields within a ``PairedEvent``'s
