@@ -50,12 +50,13 @@ from adrian.config import AdrianConfig
 from adrian.context import get_invocation_id, set_invocation_id
 from adrian.format.types import AgentContext, LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
-from adrian.proto import event_pb2 as pb
 from adrian.types import ChatMessage, EventData, TokenUsage, ToolCallRecord
+from adrian.ws import should_halt
 
 if TYPE_CHECKING:
     from contextvars import Token
 
+    from adrian.handler import AdrianCallbackHandler
     from adrian.ws import WebSocketClient
 
 logger = logging.getLogger("adrian.anthropic")
@@ -69,6 +70,7 @@ _BLOCKED_CONTENT = "[BLOCKED by security policy]"
 _hooks_getter: Callable[[], HookRegistry | None] | None = None
 _config_getter: Callable[[], AdrianConfig | None] | None = None
 _ws_getter: Callable[[], WebSocketClient | None] | None = None
+_handler_getter: Callable[[], AdrianCallbackHandler | None] | None = None
 
 
 # ------------------------------------------------------------------
@@ -354,9 +356,16 @@ def build_anthropic_llm_pair(
 async def _emit_pair(response: Any, kwargs: dict[str, Any]) -> None:
     """Assemble and emit a ``PairedEvent`` for a completed ``messages.create`` call.
 
-    Reads hooks and config at call time so the correct state is used even if
-    :func:`~adrian.shutdown` and :func:`~adrian.init` have been called since
-    the patch was applied.
+    Reads hooks / config / handler at call time so the correct state is used
+    even if :func:`~adrian.shutdown` and :func:`~adrian.init` have been called
+    since the patch was applied.
+
+    When the callback handler is available, emission is delegated to it so the
+    event is registered in the handler's event map -- this is what lets the
+    developer ``on_verdict`` / ``on_block`` / ``on_audit`` callbacks fire for
+    Anthropic calls (they are keyed on that map), matching the LangChain
+    integration.  Without a handler (e.g. ``auto_instrument=False`` before
+    ``init``) it falls back to emitting straight through the hook registry.
 
     Args:
         response: Anthropic ``Message`` response object.
@@ -370,6 +379,8 @@ async def _emit_pair(response: Any, kwargs: dict[str, Any]) -> None:
 
     if hooks is None or config is None:
         return
+
+    handler = _handler_getter() if _handler_getter is not None else None
 
     try:
         session_id = config.session_id
@@ -389,6 +400,13 @@ async def _emit_pair(response: Any, kwargs: dict[str, Any]) -> None:
             invocation_id=invocation_id,
             run_id=run_id,
         )
+
+        if handler is not None:
+            # Emits through the same hooks, registers the event for verdict
+            # enrichment, and fires on_event -- so the notification callbacks
+            # reach the developer for Anthropic events too.
+            await handler._emit_pair(pair)  # pyright: ignore[reportPrivateUsage]
+            return
 
         await hooks.emit(pair)
 
@@ -436,31 +454,6 @@ def _schedule_emit(response: Any, kwargs: dict[str, Any]) -> None:
 # ------------------------------------------------------------------
 # Verdict gate (MODE_BLOCK / MODE_HITL)
 # ------------------------------------------------------------------
-
-
-def _should_halt(verdict: pb.Verdict) -> bool:
-    """Decide whether a verdict should halt a tool call.
-
-    Kept local to this module so the Anthropic integration does not depend on
-    the LangChain handler; the logic mirrors ``langchain_handler._should_halt``.
-    HITL resolutions override per-MAD policy when present.
-
-    Args:
-        verdict: The classifier verdict for the producing LLM event.
-
-    Returns:
-        ``True`` when the tool call must be blocked.
-    """
-    if verdict.HasField("hitl"):
-        return not verdict.hitl.continue_execution
-
-    mad_prefix = verdict.mad_code[:2]
-    return {
-        "M0": verdict.policy.policy_m0,
-        "M2": verdict.policy.policy_m2,
-        "M3": verdict.policy.policy_m3,
-        "M4": verdict.policy.policy_m4,
-    }.get(mad_prefix, False)
 
 
 def _blocked_text_block(original_block: Any) -> Any:  # noqa: ANN401
@@ -531,7 +524,7 @@ def _rewrite_blocked_response(response: Any, blocked_ids: set[str]) -> Any:  # n
     return response
 
 
-async def _gate_response(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa: ANN401
+async def _gate_response(response: Any, _kwargs: dict[str, Any]) -> Any:  # noqa: ANN401
     """Hold a response on the classifier verdict before returning it.
 
     Runs after :func:`_emit_pair` (which registers the pending verdict future
@@ -547,7 +540,7 @@ async def _gate_response(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa:
 
     Args:
         response: Anthropic ``Message`` response object.
-        kwargs: Original ``messages.create`` keyword arguments (unused; kept for
+        _kwargs: Original ``messages.create`` keyword arguments (unused; kept for
             symmetry with :func:`_emit_pair`).
 
     Returns:
@@ -607,7 +600,7 @@ async def _gate_response(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa:
                 tc_id,
             )
             blocked.add(tc_id)
-        elif _should_halt(verdict):
+        elif should_halt(verdict):
             logger.warning(
                 "Anthropic gate: halting tool_call_id=%s event_id=%s mad_code=%s",
                 tc_id,
@@ -622,6 +615,72 @@ async def _gate_response(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa:
     return response
 
 
+def _emit_and_gate_sync(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa: ANN401
+    """Emit and (under BLOCK/HITL) gate a response from a synchronous call site.
+
+    The verdict futures live on the WebSocket client's event loop, so emission
+    and gating must run there together: emitting on a different loop would
+    register the wait future where the verdict frame never resolves it.  When a
+    gate-capable context exists -- a WS client with a running loop on another
+    thread, and this thread is not itself an event loop -- both steps are
+    bridged onto that loop via ``run_coroutine_threadsafe`` and this caller
+    blocks until the (possibly rewritten) response comes back.  This mirrors the
+    LangChain ``_sync_gate`` bridge.
+
+    In every other case (no WS client, ALERT / pre-login state, or a call made
+    from an event-loop thread that must not be blocked) it degrades to
+    audit-only emission via :func:`_schedule_emit` and returns the response
+    unchanged.
+
+    Args:
+        response: Anthropic ``Message`` response object.
+        kwargs: Original ``messages.create`` keyword arguments.
+
+    Returns:
+        The response, rewritten in place when a tool call was blocked.
+    """
+    ws = _ws_getter() if _ws_getter is not None else None
+
+    if ws is not None and _should_gate_sync(ws):
+        main_loop = getattr(ws, "_loop", None)
+
+        if main_loop is not None and main_loop.is_running():
+
+            async def _emit_then_gate() -> Any:  # noqa: ANN401
+                await _emit_pair(response, kwargs)
+                return await _gate_response(response, kwargs)
+
+            try:
+                future = asyncio.run_coroutine_threadsafe(_emit_then_gate(), main_loop)
+                return future.result()
+            except Exception:
+                logger.exception(
+                    "Anthropic sync gate bridge failed; emitting audit-only"
+                )
+
+    _schedule_emit(response, kwargs)
+    return response
+
+
+def _should_gate_sync(ws: WebSocketClient) -> bool:
+    """Whether the sync path should gate rather than emit audit-only.
+
+    Gates only when a policy may be active (BLOCK / HITL, or pre-login where
+    the mode is not yet known and the async gate would fail-closed) and this
+    thread is not itself running an event loop -- blocking the event-loop
+    thread would deadlock, so those callers are left to emit and pass through.
+    """
+    if not ws.policy_active() and ws._login_ack_received.is_set():  # pyright: ignore[reportPrivateUsage]
+        return False
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return True  # no loop on this thread: worker or pure-sync caller
+    else:
+        return False  # on an event-loop thread: must not block it
+
+
 # ------------------------------------------------------------------
 # SDK patching
 # ------------------------------------------------------------------
@@ -631,13 +690,15 @@ def patch_anthropic(
     hooks_getter: Callable[[], HookRegistry | None],
     config_getter: Callable[[], AdrianConfig | None],
     ws_getter: Callable[[], WebSocketClient | None] | None = None,
+    handler_getter: Callable[[], AdrianCallbackHandler | None] | None = None,
 ) -> None:
     """Monkey-patch ``anthropic.Anthropic`` and ``anthropic.AsyncAnthropic``.
 
     Wraps ``messages.create`` on both the sync and async Anthropic resource
-    classes so every API call is captured as an Adrian ``PairedEvent``.  On the
-    async path, calls are additionally gated on the classifier verdict under
-    ``MODE_BLOCK`` / ``MODE_HITL`` (see :func:`_gate_response`).
+    classes so every API call is captured as an Adrian ``PairedEvent`` and,
+    under ``MODE_BLOCK`` / ``MODE_HITL``, gated on the classifier verdict (see
+    :func:`_gate_response`).  Both the sync and async paths gate; the sync path
+    bridges onto the WebSocket loop (see :func:`_emit_and_gate_sync`).
 
     The patch is idempotent: subsequent calls update the internal getters but
     do not re-wrap the already-patched method.  If the ``anthropic`` package is
@@ -654,12 +715,17 @@ def patch_anthropic(
         ws_getter: Zero-arg callable returning the current ``WebSocketClient``,
             or ``None``.  Required for verdict gating; when absent the handler
             stays audit-only (ALERT-mode behaviour).
+        handler_getter: Zero-arg callable returning the current
+            ``AdrianCallbackHandler``, or ``None``.  Enables the developer
+            ``on_verdict`` / ``on_block`` / ``on_audit`` callbacks for Anthropic
+            events by registering them in the handler's event map.
     """
-    global _hooks_getter, _config_getter, _ws_getter  # noqa: PLW0603
+    global _hooks_getter, _config_getter, _ws_getter, _handler_getter  # noqa: PLW0603
 
     _hooks_getter = hooks_getter
     _config_getter = config_getter
     _ws_getter = ws_getter
+    _handler_getter = handler_getter
 
     try:
         from anthropic.resources.messages import AsyncMessages, Messages
@@ -680,8 +746,9 @@ def patch_anthropic(
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = _original_sync(self, *args, **kwargs)
-                _schedule_emit(response, kwargs)
-                return response
+                # Emit + gate together on the WS loop (BLOCK/HITL); degrades to
+                # audit-only emission when gating isn't possible.
+                return _emit_and_gate_sync(response, kwargs)
 
             sync_cls.create = _patched_sync_create  # type: ignore[method-assign]
             sync_cls._adrian_patched = True  # type: ignore[attr-defined]

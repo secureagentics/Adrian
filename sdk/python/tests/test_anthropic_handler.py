@@ -18,6 +18,7 @@ from adrian.anthropic_handler import (
     _BLOCKED_CONTENT,
     _blocked_text_block,
     _derive_agent_id,
+    _emit_and_gate_sync,
     _emit_pair,
     _extract_anthropic_tool_calls,
     _extract_anthropic_usage,
@@ -26,7 +27,6 @@ from adrian.anthropic_handler import (
     _flatten_content,
     _gate_response,
     _rewrite_blocked_response,
-    _should_halt,
     anthropic_invocation,
     anthropic_invocation_sync,
     build_anthropic_llm_pair,
@@ -838,6 +838,7 @@ class TestVerdictGate:
         _ah._ws_getter = None
         _ah._config_getter = None
         _ah._hooks_getter = None
+        _ah._handler_getter = None
 
     async def test_alert_mode_passes_through(self) -> None:
         ws = WebSocketClient("ws://x", "s", api_key="k")
@@ -1063,33 +1064,6 @@ class TestVerdictGate:
         assert _ah._ws_getter() is ws
 
 
-class TestShouldHalt:
-    def test_hitl_reject_halts(self) -> None:
-        v = pb.Verdict(event_id="e", mad_code="M4_a")
-        v.hitl.continue_execution = False
-        assert _should_halt(v) is True
-
-    def test_hitl_approve_does_not_halt(self) -> None:
-        v = pb.Verdict(event_id="e", mad_code="M4_a")
-        v.hitl.continue_execution = True
-        assert _should_halt(v) is False
-
-    def test_policy_flag_on_halts(self) -> None:
-        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=True)
-        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
-        assert _should_halt(v) is True
-
-    def test_policy_flag_off_does_not_halt(self) -> None:
-        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=False)
-        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
-        assert _should_halt(v) is False
-
-    def test_unknown_mad_prefix_does_not_halt(self) -> None:
-        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=True)
-        v = pb.Verdict(event_id="e", mad_code="M9_z", policy=policy)
-        assert _should_halt(v) is False
-
-
 class TestBlockedTextBlock:
     def test_dict_block_returns_dict(self) -> None:
         result = _blocked_text_block({"type": "tool_use", "id": "x"})
@@ -1121,3 +1095,180 @@ class TestRewriteBlockedResponse:
         _rewrite_blocked_response(response, {"tc-1"})
         assert response.content[0] == keep
         assert response.content[1] == {"type": "text", "text": _BLOCKED_CONTENT}
+
+
+# ------------------------------------------------------------------
+# Developer notification callbacks (on_verdict / on_block / on_audit)
+# ------------------------------------------------------------------
+
+
+def _make_handler(config: AdrianConfig) -> Any:  # noqa: ANN401
+    """Build a real AdrianCallbackHandler and wire the Anthropic getters to it."""
+    from adrian.context import AgentContextTracker
+    from adrian.handler import AdrianCallbackHandler
+    from adrian.pairing import EventPairBuffer
+
+    hooks = HookRegistry()
+    handler = AdrianCallbackHandler(
+        pair_buffer=EventPairBuffer(),
+        context_tracker=AgentContextTracker(),
+        hooks=hooks,
+        config=config,
+    )
+    _ah._hooks_getter = lambda: hooks
+    _ah._config_getter = lambda: config
+    _ah._handler_getter = lambda: handler
+    return handler
+
+
+class TestNotificationCallbacks:
+    """Anthropic events must reach on_verdict/on_block/on_audit (parity)."""
+
+    @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
+    def _reset_getters(self) -> Any:  # noqa: ANN401
+        yield
+        _ah._ws_getter = None
+        _ah._config_getter = None
+        _ah._hooks_getter = None
+        _ah._handler_getter = None
+
+    async def test_emit_registers_event_in_handler_map(self) -> None:
+        # Without this registration the verdict callbacks can never fire.
+        config = AdrianConfig(session_id="s")
+        handler = _make_handler(config)
+
+        await _emit_pair(
+            _make_text_response(text="hi"),
+            {"model": "m", "messages": [{"role": "user", "content": "q"}]},
+        )
+
+        assert len(handler._event_map) == 1  # pyright: ignore[reportPrivateUsage]
+
+    async def test_block_tier_verdict_fires_verdict_and_block(self) -> None:
+        fired: dict[str, int] = {"verdict": 0, "block": 0, "audit": 0}
+        config = AdrianConfig(
+            session_id="s",
+            on_verdict=lambda _ctx: fired.__setitem__("verdict", fired["verdict"] + 1),
+            on_block=lambda _ctx: fired.__setitem__("block", fired["block"] + 1),
+            on_audit=lambda _ctx: fired.__setitem__("audit", fired["audit"] + 1),
+        )
+        handler = _make_handler(config)
+
+        await _emit_pair(
+            _make_text_response(),
+            {"model": "m", "messages": [{"role": "user", "content": "q"}]},
+        )
+        event_id = next(iter(handler._event_map))  # pyright: ignore[reportPrivateUsage]
+
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=True)
+        await handler.handle_verdict(
+            pb.Verdict(
+                event_id=event_id, session_id="s", mad_code="M4_a", policy=policy
+            )
+        )
+
+        assert fired == {"verdict": 1, "block": 1, "audit": 0}
+
+    async def test_audit_tier_verdict_fires_verdict_and_audit(self) -> None:
+        fired: dict[str, int] = {"verdict": 0, "block": 0, "audit": 0}
+        config = AdrianConfig(
+            session_id="s",
+            on_verdict=lambda _ctx: fired.__setitem__("verdict", fired["verdict"] + 1),
+            on_block=lambda _ctx: fired.__setitem__("block", fired["block"] + 1),
+            on_audit=lambda _ctx: fired.__setitem__("audit", fired["audit"] + 1),
+        )
+        handler = _make_handler(config)
+
+        await _emit_pair(
+            _make_text_response(),
+            {"model": "m", "messages": [{"role": "user", "content": "q"}]},
+        )
+        event_id = next(iter(handler._event_map))  # pyright: ignore[reportPrivateUsage]
+
+        policy = pb.PolicySnapshot(mode=pb.MODE_ALERT, policy_m2=True)
+        await handler.handle_verdict(
+            pb.Verdict(event_id=event_id, session_id="s", mad_code="M2", policy=policy)
+        )
+
+        assert fired == {"verdict": 1, "block": 0, "audit": 1}
+
+
+# ------------------------------------------------------------------
+# Sync-path gating (_emit_and_gate_sync / _should_gate_sync)
+# ------------------------------------------------------------------
+
+
+class TestSyncGate:
+    @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
+    def _reset_getters(self) -> Any:  # noqa: ANN401
+        yield
+        _ah._ws_getter = None
+        _ah._config_getter = None
+        _ah._hooks_getter = None
+        _ah._handler_getter = None
+
+    def test_should_gate_when_policy_active_and_no_loop(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        assert _ah._should_gate_sync(ws) is True
+
+    def test_should_not_gate_in_alert(self) -> None:
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_ALERT)
+        assert _ah._should_gate_sync(ws) is False
+
+    async def test_should_not_gate_on_event_loop_thread(self) -> None:
+        # Called from within the running test loop: must not block it.
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        assert _ah._should_gate_sync(ws) is False
+
+    def test_sync_bridge_gates_and_rewrites(self) -> None:
+        """A sync caller blocks on the WS loop and gets a rewritten response."""
+        import threading
+
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+            ws = WebSocketClient("ws://x", "s", api_key="k")
+            _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+            ws._loop = loop  # pyright: ignore[reportPrivateUsage] - WS loop
+            ws._send_frame = AsyncMock()  # pyright: ignore[reportPrivateUsage]
+
+            hooks = HookRegistry()
+            hooks.register(ws)
+            _ah._hooks_getter = lambda: hooks
+            _ah._ws_getter = lambda: ws
+            _ah._config_getter = lambda: AdrianConfig(session_id="s", block_timeout=0.1)
+
+            response = _make_tool_response(tool_id="tc-sync")
+            result = _emit_and_gate_sync(
+                response,
+                {"model": "m", "messages": [{"role": "user", "content": "go"}]},
+            )
+
+            # No verdict resolves within block_timeout -> fail-closed rewrite.
+            assert result.content[0].text == _BLOCKED_CONTENT
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=2)
+            loop.close()
+
+    async def test_sync_helper_audit_only_on_event_loop_thread(self) -> None:
+        """On an event-loop thread the sync path emits but does not block/gate."""
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        hooks = HookRegistry()
+        _ah._hooks_getter = lambda: hooks
+        _ah._ws_getter = lambda: ws
+        _ah._config_getter = lambda: AdrianConfig(session_id="s")
+
+        response = _make_tool_response(tool_id="tc-x")
+        result = _emit_and_gate_sync(
+            response,
+            {"model": "m", "messages": [{"role": "user", "content": "go"}]},
+        )
+
+        # Passed through untouched (no blocking gate on the loop thread).
+        assert _block_types(result) == ["tool_use"]

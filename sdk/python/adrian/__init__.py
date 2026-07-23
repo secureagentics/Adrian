@@ -402,6 +402,7 @@ def patch_anthropic() -> None:
         hooks_getter=lambda: _hooks,
         config_getter=lambda: get_config() if is_initialized() else None,
         ws_getter=lambda: _ws_client,
+        handler_getter=lambda: _handler,
     )
 
 

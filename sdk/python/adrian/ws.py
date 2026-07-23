@@ -176,6 +176,27 @@ def _paired_event_to_proto(event: PairedEvent) -> pb.PairedEvent:
     return proto
 
 
+def should_halt(verdict: pb.Verdict) -> bool:
+    """Decide whether a verdict should halt tool execution.
+
+    Shared halt decision consumed by every integration handler (LangChain,
+    Anthropic, …) so the block/HITL policy is evaluated identically across
+    providers.  Mirrors the TypeScript core ``shouldHalt`` helper.
+
+    HITL resolutions override per-MAD policy when present.
+    """
+    if verdict.HasField("hitl"):
+        return not verdict.hitl.continue_execution
+
+    mad_prefix = verdict.mad_code[:2]
+    return {
+        "M0": verdict.policy.policy_m0,
+        "M2": verdict.policy.policy_m2,
+        "M3": verdict.policy.policy_m3,
+        "M4": verdict.policy.policy_m4,
+    }.get(mad_prefix, False)
+
+
 class WebSocketClient:
     """Streams ``PairedEvent`` instances to the worker core API.
 
