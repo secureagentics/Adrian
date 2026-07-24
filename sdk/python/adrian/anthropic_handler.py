@@ -621,45 +621,66 @@ def _emit_and_gate_sync(response: Any, kwargs: dict[str, Any]) -> Any:  # noqa: 
     The verdict futures live on the WebSocket client's event loop, so emission
     and gating must run there together: emitting on a different loop would
     register the wait future where the verdict frame never resolves it.  When a
-    gate-capable context exists -- a WS client with a running loop on another
-    thread, and this thread is not itself an event loop -- both steps are
-    bridged onto that loop via ``run_coroutine_threadsafe`` and this caller
-    blocks until the (possibly rewritten) response comes back.  This mirrors the
-    LangChain ``_sync_gate`` bridge.
+    WS loop is running on another thread both steps are bridged onto it via
+    ``run_coroutine_threadsafe``; otherwise they run to completion here via
+    ``asyncio.run``.  Either way the caller blocks until the (possibly
+    rewritten) response comes back.  This mirrors the LangChain ``_sync_gate``.
 
-    In every other case (no WS client, ALERT / pre-login state, or a call made
-    from an event-loop thread that must not be blocked) it degrades to
-    audit-only emission via :func:`_schedule_emit` and returns the response
-    unchanged.
+    Once gating is engaged (see :func:`_should_gate_sync`) every exit fails
+    **closed**: a bridge/gate error blocks the response's tool calls rather than
+    letting them through, matching ``langchain_handler._sync_gate``.  Only when
+    gating is not engaged at all -- no WS client, ALERT / post-login inactive
+    policy, or a call from an event-loop thread that must not be blocked -- does
+    it degrade to audit-only emission and return the response unchanged.
 
     Args:
         response: Anthropic ``Message`` response object.
         kwargs: Original ``messages.create`` keyword arguments.
 
     Returns:
-        The response, rewritten in place when a tool call was blocked.
+        The response, rewritten in place when a tool call was (or must be,
+        on error) blocked.
     """
     ws = _ws_getter() if _ws_getter is not None else None
 
-    if ws is not None and _should_gate_sync(ws):
-        main_loop = getattr(ws, "_loop", None)
+    # Not gating: no backend, inactive policy, or an event-loop thread we must
+    # not block -- emit for audit and pass the response through unchanged.
+    if ws is None or not _should_gate_sync(ws):
+        _schedule_emit(response, kwargs)
+        return response
 
+    # Gating is engaged: every path below must fail closed.
+    async def _emit_then_gate() -> Any:  # noqa: ANN401
+        await _emit_pair(response, kwargs)
+        return await _gate_response(response, kwargs)
+
+    main_loop = getattr(ws, "_loop", None)
+
+    try:
         if main_loop is not None and main_loop.is_running():
+            # WS loop runs on another thread: bridge onto it and block here.
+            return asyncio.run_coroutine_threadsafe(
+                _emit_then_gate(), main_loop
+            ).result()
 
-            async def _emit_then_gate() -> Any:  # noqa: ANN401
-                await _emit_pair(response, kwargs)
-                return await _gate_response(response, kwargs)
-
-            try:
-                future = asyncio.run_coroutine_threadsafe(_emit_then_gate(), main_loop)
-                return future.result()
-            except Exception:
-                logger.exception(
-                    "Anthropic sync gate bridge failed; emitting audit-only"
-                )
-
-    _schedule_emit(response, kwargs)
-    return response
+        # No WS loop on another thread: run to completion on a temporary loop.
+        # With no live connection no verdict arrives, so the gate fail-closes
+        # via timeout -- the same outcome as LangChain's asyncio.run fallback.
+        return asyncio.run(_emit_then_gate())
+    except Exception:
+        # Fail closed: a bridge/gate failure must not let a halted tool call
+        # through.  Block every tool call in the response.
+        logger.exception(
+            "Anthropic sync gate failed; failing closed (blocking tool calls)"
+        )
+        blocked = {
+            rec["id"]
+            for rec in _extract_anthropic_tool_calls(
+                getattr(response, "content", []) or []
+            )
+            if rec["id"]
+        }
+        return _rewrite_blocked_response(response, blocked)
 
 
 def _should_gate_sync(ws: WebSocketClient) -> bool:

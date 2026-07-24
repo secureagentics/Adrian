@@ -1272,3 +1272,63 @@ class TestSyncGate:
 
         # Passed through untouched (no blocking gate on the loop thread).
         assert _block_types(result) == ["tool_use"]
+
+    def test_sync_bridge_exception_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A bridge/gate error must fail closed, not let the tool call through."""
+        import threading
+
+        async def _boom(*_args: Any, **_kwargs: Any) -> Any:  # noqa: ANN401
+            raise RuntimeError("gate exploded")
+
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+            ws = WebSocketClient("ws://x", "s", api_key="k")
+            _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+            ws._loop = loop  # pyright: ignore[reportPrivateUsage] - WS loop
+            ws._send_frame = AsyncMock()  # pyright: ignore[reportPrivateUsage]
+
+            hooks = HookRegistry()
+            hooks.register(ws)
+            _ah._hooks_getter = lambda: hooks
+            _ah._ws_getter = lambda: ws
+            _ah._config_getter = lambda: AdrianConfig(session_id="s")
+            # Gate raises after emit -> the bridge re-raises on .result().
+            monkeypatch.setattr(_ah, "_gate_response", _boom)
+
+            response = _make_tool_response(tool_id="tc-err")
+            result = _emit_and_gate_sync(
+                response,
+                {"model": "m", "messages": [{"role": "user", "content": "go"}]},
+            )
+
+            assert result.content[0].text == _BLOCKED_CONTENT
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=2)
+            loop.close()
+
+    def test_sync_no_ws_loop_fails_closed_via_timeout(self) -> None:
+        """No running WS loop -> the asyncio.run path fail-closes via timeout."""
+        ws = WebSocketClient("ws://x", "s", api_key="k")
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._loop = None  # pyright: ignore[reportPrivateUsage] - no WS loop
+        ws._send_frame = AsyncMock()  # pyright: ignore[reportPrivateUsage]
+
+        hooks = HookRegistry()
+        hooks.register(ws)
+        _ah._hooks_getter = lambda: hooks
+        _ah._ws_getter = lambda: ws
+        _ah._config_getter = lambda: AdrianConfig(session_id="s", block_timeout=0.1)
+
+        response = _make_tool_response(tool_id="tc-noloop")
+        result = _emit_and_gate_sync(
+            response,
+            {"model": "m", "messages": [{"role": "user", "content": "go"}]},
+        )
+
+        # No verdict can arrive with no live loop -> fail-closed rewrite.
+        assert result.content[0].text == _BLOCKED_CONTENT
