@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 # Regenerate adrian/proto/event_pb2.py and event_pb2.pyi from event.proto.
 #
 # The SDK vendors the generated buf.validate Python bindings at

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import type { CallbackMetadata, ChatMessage, ErrorData, TokenUsage, ToolCallRecord } from "../types.js";
 
 export interface AgentContext {

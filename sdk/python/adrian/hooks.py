@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Handler hook registry.
 
 Decouples event transport from event capture. The SDK captures and

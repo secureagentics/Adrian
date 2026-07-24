@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Vendored protobuf definitions for the Adrian Worker Core API wire format."""
 
 # Pre-load Google well-known types into the descriptor pool before

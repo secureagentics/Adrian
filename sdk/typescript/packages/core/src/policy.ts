@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { currentConfig } from "./config.js";
 import { shouldHalt, type WebSocketClient } from "./ws.js";
 

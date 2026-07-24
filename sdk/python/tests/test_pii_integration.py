@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Integration tests for always-on PII redaction in adrian.init()."""
 
 # pyright: reportPrivateUsage=false

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """LangChain async callback handler that produces Adrian PairedEvents.
 
 Captures five LangChain callback events, pairs them (chat_model_start +

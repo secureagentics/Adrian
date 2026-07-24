@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { createHash } from "node:crypto";
 import { Detection, PiiType } from "./patterns.js";
 

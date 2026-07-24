@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Persistent per-cwd session_id storage.
 
 By default Adrian assigns a fresh ``session_id`` on every SDK init,

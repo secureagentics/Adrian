@@ -1,6 +1,8 @@
 # Adrian pre-commit hooks. Run on every `git commit` once `pre-commit
 # install` has been run from this repo's root (see CONTRIBUTING.md).
-# Scoped to Python files under `sdk/python/` and `scripts/`.
+# Formatting/lint hooks are scoped to Python files under `sdk/python/`
+# and `scripts/`; the licence-header hook covers Go, Python, TypeScript,
+# JavaScript, proto and shell sources repo-wide.
 
 default_install_hook_types: [pre-commit]
 default_language_version:
@@ -34,6 +36,14 @@ repos:
 
   - repo: local
     hooks:
+      - id: license-header
+        name: licence header
+        entry: python3 scripts/add_license_header.py
+        language: system
+        files: \.(go|py|pyi|ts|tsx|js|mjs|cjs|proto|sh)$
+        # Vendored code keeps its own licence; generated proto bindings
+        # would lose the header on regeneration.
+        exclude: (^|/)vendor/|(^|/)node_modules/|\.pb\.go$|_pb2(_grpc)?\.pyi?$
       - id: basedpyright
         name: basedpyright
         entry: basedpyright

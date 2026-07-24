@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """End-to-end execution-mode coverage.
 
 Drives the SDK through each of the three server-supplied modes and the

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import protobuf from "protobufjs";
 import type { PairedEvent } from "../format/types.js";
 import type { McpServer } from "../types.js";

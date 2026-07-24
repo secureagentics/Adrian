@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian with a LangGraph ReAct agent (``create_react_agent``).
 
 ``langgraph.prebuilt.create_react_agent`` is the long-standing prebuilt

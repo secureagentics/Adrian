@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { afterEach, describe, expect, it } from "vitest";
 import { setConfig, Mode, type Verdict, type WebSocketClient } from "../src/index.js";
 import { assertToolCallsAllowed, gateToolCallIds } from "../src/policy.js";

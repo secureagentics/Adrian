@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { currentConfig, type AdrianConfig } from "./config.js";
 import { getInvocationId } from "./context.js";
 import { AgentContextTracker } from "./context.js";

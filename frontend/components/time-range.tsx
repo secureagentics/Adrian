@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 'use client'
 
 export type TimeRange = '1h' | '24h' | '7d' | '30d' | 'custom'

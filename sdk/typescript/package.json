@@ -1,6 +1,7 @@
 {
   "name": "@secureagentics/adrian-workspace",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Adrian TypeScript SDK monorepo (npm workspaces).",
   "workspaces": [
     "packages/*"

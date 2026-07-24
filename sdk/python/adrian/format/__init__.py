@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian unified event format.
 
 Defines the ``PairedEvent`` data model that combines start+end LangChain

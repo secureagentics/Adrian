@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 'use client'
 
 // Minimal theme provider — no deps. Persists choice to localStorage and

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """JSONL file handler for paired events.
 
 Writes each ``PairedEvent`` as a single JSON line to a file. This is

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentContext, ParentContext } from "./format/types.js";
 

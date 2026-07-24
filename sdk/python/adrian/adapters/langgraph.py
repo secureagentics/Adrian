@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """LangGraph adapter for agent identity detection.
 
 Parses the ``langgraph_checkpoint_ns`` (checkpoint namespace) field from

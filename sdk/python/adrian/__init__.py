@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian: multi-agent event capture SDK for LangChain/LangGraph as of 2026-05-10.
 
 Initialise with a single call and all LLM / tool activity is automatically

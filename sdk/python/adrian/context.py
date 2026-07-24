@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Invocation and agent context tracking.
 
 Tracks two concepts that LangChain's callback system does not provide:

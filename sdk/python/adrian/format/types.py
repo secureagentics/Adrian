@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Adrian unified event format types.
 
 Each LangChain callback pair (chat_model_start + llm_end, or tool_start +

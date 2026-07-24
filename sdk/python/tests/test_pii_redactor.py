@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 SecureAgentics
+
 """Tests for adrian.pii._redactor, PairedEvent redaction."""
 
 from __future__ import annotations
