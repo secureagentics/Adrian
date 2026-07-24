@@ -22,6 +22,7 @@ from adrian.ws import (
     WebSocketClient,
     _derive_provider,
     _paired_event_to_proto,
+    should_halt,
 )
 
 
@@ -364,3 +365,39 @@ class TestBlockModePrimitives:
             )
 
         assert "" not in client._tool_call_id_to_event_id
+
+
+class TestShouldHalt:
+    """The shared halt decision consumed by every integration handler."""
+
+    def test_hitl_reject_halts(self) -> None:
+        v = pb.Verdict(event_id="e", mad_code="M4_a")
+        v.hitl.continue_execution = False
+        assert should_halt(v) is True
+
+    def test_hitl_approve_does_not_halt(self) -> None:
+        v = pb.Verdict(event_id="e", mad_code="M4_a")
+        v.hitl.continue_execution = True
+        assert should_halt(v) is False
+
+    def test_hitl_overrides_policy(self) -> None:
+        # HITL approval wins even when the per-MAD policy flag is set.
+        policy = pb.PolicySnapshot(mode=pb.MODE_HITL, policy_m4=True)
+        v = pb.Verdict(event_id="e", mad_code="M4_a", policy=policy)
+        v.hitl.continue_execution = True
+        assert should_halt(v) is False
+
+    def test_policy_flag_on_halts(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=True)
+        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
+        assert should_halt(v) is True
+
+    def test_policy_flag_off_does_not_halt(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m3=False)
+        v = pb.Verdict(event_id="e", mad_code="M3_x", policy=policy)
+        assert should_halt(v) is False
+
+    def test_unknown_mad_prefix_does_not_halt(self) -> None:
+        policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=True)
+        v = pb.Verdict(event_id="e", mad_code="M9_z", policy=policy)
+        assert should_halt(v) is False
