@@ -84,8 +84,29 @@ the plugin acts accordingly. No behavior is hard-wired in the client.
 - **Tool output capture** - PostToolUse logs complete tool responses
 - **Invocation tracking** - groups events by user prompt for context
 - **Transcript parsing** - extracts Claude's reasoning and user instructions
+- **PII redaction** - events are scrubbed before they leave your machine
 - **Dashboard** - view events and verdicts at your Adrian dashboard
 - **Fail-open** - if the backend is unavailable, tools are allowed by default
+
+## PII redaction
+
+Every event is redacted before it is serialised and sent, at a single egress
+point (`_ws_send_event`).  Redaction is always on and has no opt-out, matching
+the SDK, where `adrian.init()` wraps every handler in `RedactingHandler`.
+
+Scrubbed fields: agent and parent `system_prompt` / `user_instruction`, tool
+`input` and `output`, LLM messages / output / tool-call args, and the
+`reasoning_latest` entry of `metadata_json`.  Structural metadata (ids, paths,
+counts, modes) is left intact so the backend and dashboard can still parse it.
+
+Detected types: email, phone, SSN, credit card (Luhn-checked), private IP,
+date of birth, IBAN, passport, street address, postal code, driver licence and
+AWS access key.  Matches are replaced with a tag such as `[EMAIL_REDACTED]`,
+so the classifier still sees the shape of the text without the values.
+
+The detection engine is vendored from `sdk/python/adrian/pii` (stdlib-only, so
+the plugin keeps its no-pip-install property).  `tests/test_pii.py` fails if
+the copy drifts from the SDK while the monorepo source is present.
 
 ## Configuration
 
