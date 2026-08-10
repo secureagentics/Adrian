@@ -146,6 +146,16 @@ message McpServer {
   // URL for SSE/HTTP/WebSocket transports, or the joined command line
   // for stdio. Empty string when neither is available.
   string endpoint = 3;
+  // Package or server version (e.g. "3.2.5"). Empty when unknown.
+  // Sourced from serverInfo.version (initialize handshake), falling
+  // back to npm/pip registry lookups.
+  string version = 4;
+  // MCP protocol version from initialize handshake (e.g. "2025-06-18").
+  string protocol_version = 5;
+  // Server's self-reported name from serverInfo.name in initialize.
+  string server_info_name = 6;
+  // JSON-encoded list of tool names the server exposes.
+  string tools_json = 7;
 }
 
 // McpInventory is the SDK's one-shot dump of its connected MCP servers.
@@ -153,6 +163,25 @@ message McpServer {
 // the session's entire MCP-server list on receipt, no diff/merge.
 message McpInventory {
   repeated McpServer servers = 1;
+}
+
+// InstalledPlugin describes one plugin installed in a Claude Code session.
+message InstalledPlugin {
+  // Plugin identifier (e.g. "playwright@claude-plugins-official").
+  string name = 1 [(buf.validate.field).string.min_len = 1];
+  // Whether the plugin is currently enabled.
+  bool enabled = 2;
+  // Plugin version string (e.g. "1.1.53" or "unknown").
+  string version = 3;
+  // Marketplace or source the plugin was installed from.
+  string marketplace = 4;
+}
+
+// PluginInventory is a one-shot dump of installed plugins.
+// Sent once per WS session after login, alongside McpInventory.
+// The server replaces the session's entire plugin list on receipt.
+message PluginInventory {
+  repeated InstalledPlugin plugins = 1;
 }
 
 // LLMStack identifies the LLM provider and model for a session.
@@ -203,6 +232,8 @@ message ClientFrame {
     PairedEventBatch paired_batch = 3;
     // One-shot MCP-server inventory dump from the SDK after login.
     McpInventory mcp_inventory = 4;
+    // One-shot plugin inventory dump (Claude Code sessions).
+    PluginInventory plugin_inventory = 5;
   }
 }
 
@@ -266,6 +297,7 @@ message HitlResponse {
 // effect.
 message LoginAck {
   PolicySnapshot policy = 1;
+  string source = 2;
 }
 
 // ServerFrame is the top-level envelope for all server→SDK WebSocket

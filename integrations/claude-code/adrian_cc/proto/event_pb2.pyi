@@ -1,9 +1,10 @@
-from .buf.validate import validate_pb2 as _validate_pb2
+from buf.validate import validate_pb2 as _validate_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -19,6 +20,12 @@ class Mode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MODE_ALERT: _ClassVar[Mode]
     MODE_HITL: _ClassVar[Mode]
     MODE_BLOCK: _ClassVar[Mode]
+
+class VerdictStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    VERDICT_STATUS_UNSPECIFIED: _ClassVar[VerdictStatus]
+    VERDICT_STATUS_OK: _ClassVar[VerdictStatus]
+    VERDICT_STATUS_ERROR: _ClassVar[VerdictStatus]
 PAIR_TYPE_UNSPECIFIED: PairType
 PAIR_TYPE_LLM: PairType
 PAIR_TYPE_TOOL: PairType
@@ -26,6 +33,9 @@ MODE_UNSPECIFIED: Mode
 MODE_ALERT: Mode
 MODE_HITL: Mode
 MODE_BLOCK: Mode
+VERDICT_STATUS_UNSPECIFIED: VerdictStatus
+VERDICT_STATUS_OK: VerdictStatus
+VERDICT_STATUS_ERROR: VerdictStatus
 
 class ChatMessage(_message.Message):
     __slots__ = ("role", "content")
@@ -92,7 +102,7 @@ class ToolPairData(_message.Message):
     def __init__(self, tool_name: _Optional[str] = ..., tool_call_id: _Optional[str] = ..., input: _Optional[str] = ..., output: _Optional[str] = ...) -> None: ...
 
 class PairedEvent(_message.Message):
-    __slots__ = ("event_id", "invocation_id", "session_id", "run_id", "parent_run_id", "timestamp", "pair_type", "agent", "parent", "llm", "tool", "metadata_json", "connection_id", "source")
+    __slots__ = ("event_id", "invocation_id", "session_id", "run_id", "parent_run_id", "timestamp", "pair_type", "agent", "parent", "llm", "tool", "connection_id", "metadata_json", "source")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -104,8 +114,8 @@ class PairedEvent(_message.Message):
     PARENT_FIELD_NUMBER: _ClassVar[int]
     LLM_FIELD_NUMBER: _ClassVar[int]
     TOOL_FIELD_NUMBER: _ClassVar[int]
-    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     CONNECTION_ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     event_id: str
     invocation_id: str
@@ -118,10 +128,10 @@ class PairedEvent(_message.Message):
     parent: AgentContext
     llm: LlmPairData
     tool: ToolPairData
-    metadata_json: bytes
     connection_id: str
+    metadata_json: bytes
     source: str
-    def __init__(self, event_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., session_id: _Optional[str] = ..., run_id: _Optional[str] = ..., parent_run_id: _Optional[str] = ..., timestamp: _Optional[str] = ..., pair_type: _Optional[_Union[PairType, str]] = ..., agent: _Optional[_Union[AgentContext, _Mapping]] = ..., parent: _Optional[_Union[AgentContext, _Mapping]] = ..., llm: _Optional[_Union[LlmPairData, _Mapping]] = ..., tool: _Optional[_Union[ToolPairData, _Mapping]] = ..., metadata_json: _Optional[bytes] = ..., connection_id: _Optional[str] = ..., source: _Optional[str] = ...) -> None: ...
+    def __init__(self, event_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., session_id: _Optional[str] = ..., run_id: _Optional[str] = ..., parent_run_id: _Optional[str] = ..., timestamp: _Optional[str] = ..., pair_type: _Optional[_Union[PairType, str]] = ..., agent: _Optional[_Union[AgentContext, _Mapping]] = ..., parent: _Optional[_Union[AgentContext, _Mapping]] = ..., llm: _Optional[_Union[LlmPairData, _Mapping]] = ..., tool: _Optional[_Union[ToolPairData, _Mapping]] = ..., connection_id: _Optional[str] = ..., metadata_json: _Optional[bytes] = ..., source: _Optional[str] = ...) -> None: ...
 
 class PairedEventBatch(_message.Message):
     __slots__ = ("events",)
@@ -130,20 +140,46 @@ class PairedEventBatch(_message.Message):
     def __init__(self, events: _Optional[_Iterable[_Union[PairedEvent, _Mapping]]] = ...) -> None: ...
 
 class McpServer(_message.Message):
-    __slots__ = ("name", "transport", "endpoint")
+    __slots__ = ("name", "transport", "endpoint", "version", "protocol_version", "server_info_name", "tools_json")
     NAME_FIELD_NUMBER: _ClassVar[int]
     TRANSPORT_FIELD_NUMBER: _ClassVar[int]
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
+    SERVER_INFO_NAME_FIELD_NUMBER: _ClassVar[int]
+    TOOLS_JSON_FIELD_NUMBER: _ClassVar[int]
     name: str
     transport: str
     endpoint: str
-    def __init__(self, name: _Optional[str] = ..., transport: _Optional[str] = ..., endpoint: _Optional[str] = ...) -> None: ...
+    version: str
+    protocol_version: str
+    server_info_name: str
+    tools_json: str
+    def __init__(self, name: _Optional[str] = ..., transport: _Optional[str] = ..., endpoint: _Optional[str] = ..., version: _Optional[str] = ..., protocol_version: _Optional[str] = ..., server_info_name: _Optional[str] = ..., tools_json: _Optional[str] = ...) -> None: ...
 
 class McpInventory(_message.Message):
     __slots__ = ("servers",)
     SERVERS_FIELD_NUMBER: _ClassVar[int]
     servers: _containers.RepeatedCompositeFieldContainer[McpServer]
     def __init__(self, servers: _Optional[_Iterable[_Union[McpServer, _Mapping]]] = ...) -> None: ...
+
+class InstalledPlugin(_message.Message):
+    __slots__ = ("name", "enabled", "version", "marketplace")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    MARKETPLACE_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    enabled: bool
+    version: str
+    marketplace: str
+    def __init__(self, name: _Optional[str] = ..., enabled: _Optional[bool] = ..., version: _Optional[str] = ..., marketplace: _Optional[str] = ...) -> None: ...
+
+class PluginInventory(_message.Message):
+    __slots__ = ("plugins",)
+    PLUGINS_FIELD_NUMBER: _ClassVar[int]
+    plugins: _containers.RepeatedCompositeFieldContainer[InstalledPlugin]
+    def __init__(self, plugins: _Optional[_Iterable[_Union[InstalledPlugin, _Mapping]]] = ...) -> None: ...
 
 class LLMStack(_message.Message):
     __slots__ = ("provider", "model")
@@ -168,34 +204,38 @@ class SessionLogin(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., llm_stack: _Optional[_Union[LLMStack, _Mapping]] = ..., schema_version: _Optional[int] = ..., source: _Optional[str] = ..., connection_id: _Optional[str] = ...) -> None: ...
 
 class ClientFrame(_message.Message):
-    __slots__ = ("login", "paired_batch", "mcp_inventory")
+    __slots__ = ("login", "paired_batch", "mcp_inventory", "plugin_inventory")
     LOGIN_FIELD_NUMBER: _ClassVar[int]
     PAIRED_BATCH_FIELD_NUMBER: _ClassVar[int]
     MCP_INVENTORY_FIELD_NUMBER: _ClassVar[int]
+    PLUGIN_INVENTORY_FIELD_NUMBER: _ClassVar[int]
     login: SessionLogin
     paired_batch: PairedEventBatch
     mcp_inventory: McpInventory
-    def __init__(self, login: _Optional[_Union[SessionLogin, _Mapping]] = ..., paired_batch: _Optional[_Union[PairedEventBatch, _Mapping]] = ..., mcp_inventory: _Optional[_Union[McpInventory, _Mapping]] = ...) -> None: ...
+    plugin_inventory: PluginInventory
+    def __init__(self, login: _Optional[_Union[SessionLogin, _Mapping]] = ..., paired_batch: _Optional[_Union[PairedEventBatch, _Mapping]] = ..., mcp_inventory: _Optional[_Union[McpInventory, _Mapping]] = ..., plugin_inventory: _Optional[_Union[PluginInventory, _Mapping]] = ...) -> None: ...
 
 class PolicySnapshot(_message.Message):
-    __slots__ = ("mode", "policy_m0", "policy_m2", "policy_m3", "policy_m4")
+    __slots__ = ("mode", "policy_m0", "policy_m2", "policy_m3", "policy_m4", "fail_closed_on_classifier_error")
     MODE_FIELD_NUMBER: _ClassVar[int]
     POLICY_M0_FIELD_NUMBER: _ClassVar[int]
     POLICY_M2_FIELD_NUMBER: _ClassVar[int]
     POLICY_M3_FIELD_NUMBER: _ClassVar[int]
     POLICY_M4_FIELD_NUMBER: _ClassVar[int]
+    FAIL_CLOSED_ON_CLASSIFIER_ERROR_FIELD_NUMBER: _ClassVar[int]
     mode: Mode
     policy_m0: bool
     policy_m2: bool
     policy_m3: bool
     policy_m4: bool
-    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., policy_m0: bool = ..., policy_m2: bool = ..., policy_m3: bool = ..., policy_m4: bool = ...) -> None: ...
+    fail_closed_on_classifier_error: bool
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., policy_m0: _Optional[bool] = ..., policy_m2: _Optional[bool] = ..., policy_m3: _Optional[bool] = ..., policy_m4: _Optional[bool] = ..., fail_closed_on_classifier_error: _Optional[bool] = ...) -> None: ...
 
 class HitlResponse(_message.Message):
     __slots__ = ("continue_execution",)
     CONTINUE_EXECUTION_FIELD_NUMBER: _ClassVar[int]
     continue_execution: bool
-    def __init__(self, continue_execution: bool = ...) -> None: ...
+    def __init__(self, continue_execution: _Optional[bool] = ...) -> None: ...
 
 class LoginAck(_message.Message):
     __slots__ = ("policy", "source")
@@ -214,15 +254,17 @@ class ServerFrame(_message.Message):
     def __init__(self, login_ack: _Optional[_Union[LoginAck, _Mapping]] = ..., verdict: _Optional[_Union[Verdict, _Mapping]] = ...) -> None: ...
 
 class Verdict(_message.Message):
-    __slots__ = ("event_id", "session_id", "mad_code", "policy", "hitl")
+    __slots__ = ("event_id", "session_id", "mad_code", "policy", "hitl", "status")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     MAD_CODE_FIELD_NUMBER: _ClassVar[int]
     POLICY_FIELD_NUMBER: _ClassVar[int]
     HITL_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
     event_id: str
     session_id: str
     mad_code: str
     policy: PolicySnapshot
     hitl: HitlResponse
-    def __init__(self, event_id: _Optional[str] = ..., session_id: _Optional[str] = ..., mad_code: _Optional[str] = ..., policy: _Optional[_Union[PolicySnapshot, _Mapping]] = ..., hitl: _Optional[_Union[HitlResponse, _Mapping]] = ...) -> None: ...
+    status: VerdictStatus
+    def __init__(self, event_id: _Optional[str] = ..., session_id: _Optional[str] = ..., mad_code: _Optional[str] = ..., policy: _Optional[_Union[PolicySnapshot, _Mapping]] = ..., hitl: _Optional[_Union[HitlResponse, _Mapping]] = ..., status: _Optional[_Union[VerdictStatus, str]] = ...) -> None: ...

@@ -24,6 +24,7 @@ import asyncio
 import json
 import os
 import ssl
+import subprocess
 import sys
 import tempfile
 import time
@@ -650,6 +651,8 @@ async def _ws_send_event(
                     "policy_m4": policy.policy_m4,
                 }
                 result["source_ack"] = sf.login_ack.source
+                blocked_list = list(sf.login_ack.blocked_mcp_servers)
+                _mutate_state(lambda s: s.__setitem__("blocked_mcp_servers", blocked_list))
 
             # --- Send event ---
             batch = pb.PairedEventBatch(events=[event])
@@ -889,9 +892,327 @@ def _verdict_action(result: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _handle_start(_hook_data: dict[str, Any]) -> None:
-    """SessionStart: reset state, inject governance context."""
+def _probe_mcp_server(cfg: dict) -> dict:
+    """Probe a stdio MCP server via the initialize handshake.
+
+    Returns dict with keys: version, protocol_version, server_info_name, tools_json.
+    All values default to "" on failure.
+    """
+    result = {"version": "", "protocol_version": "", "server_info_name": "", "tools_json": ""}
+    if "command" not in cfg:
+        return result
+    cmd = cfg.get("command", "")
+    args = cfg.get("args", [])
+    if not isinstance(args, list):
+        args = []
+    env = {**os.environ, **(cfg.get("env", {}) or {})}
+
+    init_request = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "adrian-probe", "version": "0.1.0"},
+        },
+    })
+    tools_request = json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+    })
+
+    try:
+        proc = subprocess.Popen(
+            [cmd] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, env=env, text=True,
+        )
+        stdout, _ = proc.communicate(
+            input=f"Content-Length: {len(init_request)}\r\n\r\n{init_request}"
+                  f"Content-Length: {len(tools_request)}\r\n\r\n{tools_request}",
+            timeout=10,
+        )
+
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(msg, dict) or "result" not in msg:
+                continue
+            res = msg["result"]
+            if msg.get("id") == 1:
+                si = res.get("serverInfo", {})
+                result["version"] = si.get("version", "")
+                result["server_info_name"] = si.get("name", "")
+                result["protocol_version"] = res.get("protocolVersion", "")
+            elif msg.get("id") == 2:
+                tools = res.get("tools", [])
+                result["tools_json"] = json.dumps([t.get("name", "") for t in tools])
+    except Exception:
+        pass
+
+    return result
+
+
+def _resolve_mcp_version(cfg: dict) -> str:
+    """Fallback version resolution via npm/pip when probe didn't get a version."""
+    if "command" not in cfg:
+        return ""
+    cmd = cfg.get("command", "")
+    args = cfg.get("args", [])
+    if not isinstance(args, list):
+        args = []
+
+    if cmd in ("npx", "npx.cmd") and args:
+        pkg_name = _extract_npx_package(args)
+        if pkg_name:
+            return _npm_version(pkg_name)
+
+    if cmd in ("uvx", "pipx"):
+        pkg_name = _extract_first_positional(args)
+        if pkg_name:
+            return _pip_version(pkg_name)
+
+    if cmd in ("python", "python3") and args:
+        if "-m" in args:
+            idx = args.index("-m")
+            if idx + 1 < len(args):
+                return _pip_version(args[idx + 1].replace(".", "-"))
+
+    return _pip_version(cmd) if not cmd.startswith("/") else ""
+
+
+def _extract_npx_package(args: list) -> str:
+    """Extract the npm package name from npx args."""
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("-y", "--yes", "-q", "--quiet"):
+            continue
+        if arg.startswith("-p") or arg == "--package":
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return ""
+
+
+def _extract_first_positional(args: list) -> str:
+    """Extract the first non-flag argument."""
+    for arg in args:
+        if not arg.startswith("-"):
+            return arg
+    return ""
+
+
+def _npm_version(pkg: str) -> str:
+    """Get version from npm registry."""
+    try:
+        result = subprocess.run(
+            ["npm", "view", pkg, "version"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _pip_version(pkg: str) -> str:
+    """Get version from pip show."""
+    try:
+        result = subprocess.run(
+            ["pip", "show", pkg],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _discover_cc_mcp_servers(cwd: str = "") -> list[pb.McpServer]:
+    """Read MCP server config from Claude Code config files.
+
+    Sources (merged, later wins on name collision):
+      1. ~/.claude/settings.json  → mcpServers
+      2. $CWD/.claude/settings.json → mcpServers
+      3. $CWD/.mcp.json → mcpServers
+    """
+    servers: dict[str, pb.McpServer] = {}
+
+    candidates = [
+        Path.home() / ".claude" / "settings.json",
+    ]
+    if cwd:
+        candidates.append(Path(cwd) / ".claude" / "settings.json")
+        candidates.append(Path(cwd) / ".mcp.json")
+
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            data = json.loads(path.read_text())
+            mcp_servers = data.get("mcpServers", {})
+            if not isinstance(mcp_servers, dict):
+                continue
+            for name, cfg in mcp_servers.items():
+                if not isinstance(cfg, dict):
+                    continue
+                transport = "unknown"
+                endpoint = ""
+                if "command" in cfg:
+                    transport = "stdio"
+                    cmd = cfg.get("command", "")
+                    args = cfg.get("args", [])
+                    endpoint = " ".join([cmd] + (args if isinstance(args, list) else []))
+                elif "url" in cfg:
+                    transport = "sse"
+                    endpoint = cfg["url"]
+                probe = _probe_mcp_server(cfg)
+                version = probe["version"] or _resolve_mcp_version(cfg)
+                servers[name] = pb.McpServer(
+                    name=name, transport=transport, endpoint=endpoint,
+                    version=version,
+                    protocol_version=probe["protocol_version"],
+                    server_info_name=probe["server_info_name"],
+                    tools_json=probe["tools_json"],
+                )
+        except Exception:
+            continue
+
+    return list(servers.values())
+
+
+def _discover_cc_plugins() -> list[pb.InstalledPlugin]:
+    """Read installed plugins from Claude Code config.
+
+    Sources:
+      1. ~/.claude/plugins/installed_plugins.json → list of installed plugins
+      2. ~/.claude/settings.json → enabledPlugins (list of enabled plugin names)
+    """
+    plugins: dict[str, pb.InstalledPlugin] = {}
+
+    # Installed plugins file
+    plugins_file = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    try:
+        if plugins_file.is_file():
+            data = json.loads(plugins_file.read_text())
+            if isinstance(data, list):
+                for entry in data:
+                    if not isinstance(entry, dict):
+                        continue
+                    name = entry.get("name", "") or entry.get("package_name", "")
+                    if not name:
+                        continue
+                    plugins[name] = pb.InstalledPlugin(
+                        name=name,
+                        enabled=entry.get("enabled", True),
+                        version=entry.get("version", ""),
+                        marketplace=entry.get("marketplace", entry.get("registry", "")),
+                    )
+    except Exception:
+        pass
+
+    # enabledPlugins from settings — dict {"name@marketplace": true/false}
+    # or list ["name@marketplace", ...]. Creates plugin entries if not already
+    # found in installed_plugins.json.
+    settings_file = Path.home() / ".claude" / "settings.json"
+    try:
+        if settings_file.is_file():
+            data = json.loads(settings_file.read_text())
+            enabled_raw = data.get("enabledPlugins", {})
+            if isinstance(enabled_raw, dict):
+                for full_name, is_enabled in enabled_raw.items():
+                    parts = full_name.rsplit("@", 1)
+                    short_name = parts[0] if parts else full_name
+                    marketplace = parts[1] if len(parts) > 1 else ""
+                    if full_name in plugins:
+                        plugins[full_name].enabled = bool(is_enabled)
+                    else:
+                        plugins[full_name] = pb.InstalledPlugin(
+                            name=short_name,
+                            enabled=bool(is_enabled),
+                            version="",
+                            marketplace=marketplace,
+                        )
+            elif isinstance(enabled_raw, list):
+                enabled_set = set(enabled_raw)
+                for name, plugin in plugins.items():
+                    plugin.enabled = name in enabled_set
+    except Exception:
+        pass
+
+    return list(plugins.values())
+
+
+def _send_inventory_sync(
+    session_id: str,
+    mcp_servers: list[pb.McpServer],
+    plugins: list[pb.InstalledPlugin],
+) -> None:
+    """Send MCP and plugin inventory frames via a fire-and-forget WS connection."""
+    import asyncio as _asyncio
+
+    async def _send() -> None:
+        headers: dict[str, str] = {}
+        if ADRIAN_API_KEY:
+            headers["Authorization"] = f"Bearer {ADRIAN_API_KEY}"
+        try:
+            async with websockets.connect(
+                ADRIAN_WS_URL,
+                additional_headers=headers,
+                ssl=_ws_ssl_context(),
+                open_timeout=5,
+                close_timeout=3,
+            ) as ws:
+                login = pb.SessionLogin(
+                    session_id=session_id,
+                    schema_version=2,
+                    source="claude-code",
+                )
+                login.llm_stack.provider = "anthropic"
+                login.llm_stack.model = "claude-code"
+                await ws.send(pb.ClientFrame(login=login).SerializeToString())
+                raw = await _asyncio.wait_for(ws.recv(), timeout=5)
+                sf = pb.ServerFrame()
+                sf.ParseFromString(raw if isinstance(raw, bytes) else raw.encode())
+                if mcp_servers:
+                    inv = pb.McpInventory(servers=mcp_servers)
+                    await ws.send(pb.ClientFrame(mcp_inventory=inv).SerializeToString())
+                if plugins:
+                    pinv = pb.PluginInventory(plugins=plugins)
+                    await ws.send(pb.ClientFrame(plugin_inventory=pinv).SerializeToString())
+        except Exception as exc:
+            _log(f"inventory send failed: {exc}")
+
+    try:
+        _asyncio.run(_send())
+    except Exception:
+        pass
+
+
+def _handle_start(hook_data: dict[str, Any]) -> None:
+    """SessionStart: reset state, discover MCP/plugins, inject governance context."""
     _reset_state()
+
+    session_id = hook_data.get("session_id", "")
+    cwd = hook_data.get("cwd", "")
+
+    if session_id and ADRIAN_API_KEY:
+        mcp_servers = _discover_cc_mcp_servers(cwd)
+        plugins = _discover_cc_plugins()
+        if mcp_servers or plugins:
+            _send_inventory_sync(session_id, mcp_servers, plugins)
+
     _exit_json(
         {
             "hookSpecificOutput": {
@@ -918,6 +1239,32 @@ def _handle_pre(hook_data: dict[str, Any]) -> None:
     delegated_prompt = ""
     if cc_agent_id and cc_agent_id != "claude-code":
         delegated_prompt = _subagent_delegated_prompt(transcript_path, cc_agent_id)
+
+    # Passive MCP discovery: infer MCP server from mcp__<server>__<tool> pattern.
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        if len(parts) >= 2:
+            server_name = parts[1]
+            _mutate_state(lambda s: s.setdefault("discovered_mcp", {}).__setitem__(server_name, True))
+
+            blocked_set = set(_load_state().get("blocked_mcp_servers", []))
+            if server_name in blocked_set:
+                blocked_event = _build_event(
+                    hook_data,
+                    _load_state(),
+                    output=f"[Blocked by MCP policy: {server_name}]",
+                    delegated_prompt=delegated_prompt,
+                )
+                _send_event_sync(blocked_event, session_id, wait_for_verdict=False)
+                _exit_json(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": f"Adrian: MCP server '{server_name}' is blocked",
+                        }
+                    }
+                )
 
     # Snapshot for building the event (before the delegation push, so an Agent
     # tool call stays attributed to the parent).
