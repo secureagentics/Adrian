@@ -20,6 +20,8 @@ pip install adrian-sdk
 
 Requires Python 3.12+.
 
+Calling the Anthropic SDK directly rather than through LangChain? See [ANTHROPIC.md](ANTHROPIC.md).
+
 ## Quickstart
 
 ```python
