@@ -443,7 +443,7 @@ class TestVerifySubcommand:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         async def _ok(*_a: object, **_k: object) -> dict[str, Any]:
-            return {"ok": True, "source_ack": "claude-code", "mode_name": "ALERT"}
+            return {"ok": True, "mode_name": "ALERT"}
 
         monkeypatch.setattr(agent, "ADRIAN_API_KEY", "adr_live_x")
         monkeypatch.setattr(agent, "_verify_connection", _ok)
@@ -451,7 +451,7 @@ class TestVerifySubcommand:
             agent._handle_verify()
         assert e.value.code == 0
         out = capsys.readouterr().out
-        assert out.startswith("OK:") and "claude-code" in out
+        assert out.startswith("OK:") and "ALERT" in out
         assert "adr_live_x" not in out  # key value never printed
 
     def test_verify_reports_fail(

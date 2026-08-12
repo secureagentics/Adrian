@@ -656,7 +656,6 @@ async def _ws_send_event(
                     "policy_m3": policy.policy_m3,
                     "policy_m4": policy.policy_m4,
                 }
-                result["source_ack"] = sf.login_ack.source
 
             # --- Send event ---
             batch = pb.PairedEventBatch(events=[event])
@@ -754,8 +753,8 @@ async def _verify_connection() -> dict[str, Any]:
     """Connect and SessionLogin only, with no event and no verdict.
 
     Confirms the URL is reachable and the API key authenticates. Returns
-    {ok, source_ack, mode_name} or {ok: False, error}. Never touches the key
-    value beyond the auth header.
+    {ok, mode_name} or {ok: False, error}. Never touches the key value
+    beyond the auth header.
     """
     headers: dict[str, str] = {}
     if ADRIAN_API_KEY:
@@ -782,7 +781,6 @@ async def _verify_connection() -> dict[str, Any]:
             if sf.WhichOneof("frame") == "login_ack":
                 return {
                     "ok": True,
-                    "source_ack": sf.login_ack.source,
                     "mode_name": _mode_name(sf.login_ack.policy.mode),
                 }
             return {"ok": False, "error": "server did not send a LoginAck"}
@@ -802,10 +800,7 @@ def _handle_verify() -> None:
         sys.exit(1)
     res = asyncio.run(_verify_connection())
     if res.get("ok"):
-        print(
-            f"OK: connected to {ADRIAN_WS_URL} "
-            f"(source_ack={res.get('source_ack')!r}, backend mode={res.get('mode_name')})"
-        )
+        print(f"OK: connected to {ADRIAN_WS_URL} (backend mode={res.get('mode_name')})")
         sys.exit(0)
     print(
         f"FAIL: {res.get('error')} (check ADRIAN_WS_URL and ADRIAN_API_KEY in ~/.adrian/.env)"
