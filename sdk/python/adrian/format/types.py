@@ -72,6 +72,7 @@ class LlmPairData:
         output: Generated text output from llm_end.
         tool_calls: Tool calls requested by the model.
         usage: Token usage statistics, or ``None``.
+        reasoning: The model's reasoning, where the provider exposes it.
     """
 
     model: str
@@ -79,6 +80,7 @@ class LlmPairData:
     output: str = ""
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     usage: TokenUsage | None = None
+    reasoning: str = ""
 
 
 @dataclass(slots=True)

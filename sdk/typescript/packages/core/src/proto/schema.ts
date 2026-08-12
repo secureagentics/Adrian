@@ -61,7 +61,7 @@ message ChatMessage { string role = 1; string content = 2; }
 message ToolCall { string name = 1; string args = 2; string id = 3; }
 message TokenUsage { int32 prompt_tokens = 1; int32 completion_tokens = 2; int32 total_tokens = 3; }
 message AgentContext { string agent_id = 1; string system_prompt = 2; string user_instruction = 3; }
-message LlmPairData { string model = 1; repeated ChatMessage messages = 2; string output = 3; repeated ToolCall tool_calls = 4; TokenUsage usage = 5; }
+message LlmPairData { string model = 1; repeated ChatMessage messages = 2; string output = 3; repeated ToolCall tool_calls = 4; TokenUsage usage = 5; string reasoning = 6; }
 message ToolPairData { string tool_name = 1; string tool_call_id = 2; string input = 3; string output = 4; }
 message PairedEvent { string event_id = 1; string invocation_id = 2; string session_id = 3; string run_id = 4; string parent_run_id = 5; string timestamp = 6; PairType pair_type = 7; AgentContext agent = 8; AgentContext parent = 9; oneof data { LlmPairData llm = 10; ToolPairData tool = 11; } bytes metadata_json = 20; }
 message PairedEventBatch { repeated PairedEvent events = 1; }

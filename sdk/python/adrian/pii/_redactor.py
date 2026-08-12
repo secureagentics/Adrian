@@ -101,6 +101,7 @@ class PiiRedactor:
             for msg in event.data.messages:
                 texts.append(msg["content"])
             texts.append(event.data.output)
+            texts.append(event.data.reasoning)
             for tc in event.data.tool_calls:
                 _collect_strings(tc.get("args", {}), texts)
         else:
@@ -142,6 +143,7 @@ class PiiRedactor:
             msg["content"] = self._redact_str(msg["content"])
 
         data.output = self._redact_str(data.output)
+        data.reasoning = self._redact_str(data.reasoning)
 
         for tc in data.tool_calls:
             args = tc["args"]

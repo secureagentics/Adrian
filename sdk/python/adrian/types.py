@@ -116,11 +116,13 @@ class LlmEndData(TypedDict):
         output: Generated text output.
         tool_calls: Tool calls extracted from the response.
         usage: Token usage statistics, or ``None`` if unavailable.
+        reasoning: The model's reasoning, where the provider exposes it.
     """
 
     output: str
     tool_calls: list[ToolCallRecord]
     usage: TokenUsage | None
+    reasoning: str
 
 
 class ToolStartData(TypedDict):

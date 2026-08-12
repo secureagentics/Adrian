@@ -68,11 +68,20 @@ func writeLLMSection(b *strings.Builder, llm *pb.LlmPairData, guid string) {
 	if llm == nil {
 		return
 	}
-	writeLabelled(b, "Chain of Thought: ", llm.Output, guid)
+	// Clients that send reasoning put it here; older ones send only output,
+	// which has always been rendered under this label.
+	cot := llm.Reasoning
+	if cot == "" {
+		cot = llm.Output
+	}
+	writeLabelled(b, "Chain of Thought: ", cot, guid)
+	if llm.Reasoning != "" {
+		writeLabelled(b, "Response: ", llm.Output, guid)
+	}
 	if len(llm.ToolCalls) == 0 {
 		return
 	}
-	if llm.Output != "" {
+	if cot != "" {
 		b.WriteString("\n")
 	}
 	b.WriteString("Tool Calls:\n")

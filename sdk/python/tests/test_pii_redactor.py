@@ -24,6 +24,7 @@ def _llm_event(
     system_prompt: str = "",
     user_instruction: str = "",
     parent: ParentContext | None = None,
+    reasoning: str = "",
 ) -> PairedEvent:
     return PairedEvent(
         event_id="evt-1",
@@ -43,6 +44,7 @@ def _llm_event(
             messages=messages or [],  # type: ignore[arg-type]
             output=output,
             tool_calls=tool_calls or [],  # type: ignore[arg-type]
+            reasoning=reasoning,
         ),
     )
 
@@ -98,6 +100,24 @@ class TestPiiRedactorLlm:
         assert isinstance(redacted.data, LlmPairData)
         args = redacted.data.tool_calls[0]["args"]
         assert "user@test.com" not in str(args)
+
+    def test_redacts_reasoning(self) -> None:
+        # Reasoning quotes the prompt back verbatim, so it leaks the same
+        # PII the other fields do.
+        event = _llm_event(reasoning="The user gave 555-123-4567 as a contact")
+        redactor = PiiRedactor()
+        redacted = redactor.redact_event(event)
+        assert isinstance(redacted.data, LlmPairData)
+        assert "555-123-4567" not in redacted.data.reasoning
+        assert "[PHONE_REDACTED]" in redacted.data.reasoning
+
+    def test_reasoning_pii_triggers_a_copy(self) -> None:
+        # A hit anywhere must not mutate the caller's event in place.
+        event = _llm_event(reasoning="email user@test.com")
+        redacted = PiiRedactor().redact_event(event)
+        assert redacted is not event
+        assert isinstance(event.data, LlmPairData)
+        assert event.data.reasoning == "email user@test.com"
 
     def test_redacts_system_prompt(self) -> None:
         event = _llm_event(system_prompt="Contact admin@corp.com for help")

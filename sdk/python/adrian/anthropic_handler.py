@@ -284,6 +284,53 @@ def _extract_response_text(content: list[Any]) -> str:
     return "\n".join(p for p in parts if p)
 
 
+def _request_summarised_thinking(kwargs: dict[str, Any]) -> None:
+    """Ask for summarised thinking when the caller enabled it but left it hidden.
+
+    ``thinking.display`` defaults to ``"omitted"`` on current models, so
+    thinking blocks arrive with empty text and there is nothing to capture.
+    ``display`` controls visibility only: thinking still runs and bills the
+    same either way, so opting in costs nothing.  Callers who set ``display``
+    themselves are left alone, as are callers who never enabled thinking.
+
+    Args:
+        kwargs: ``messages.create`` keyword arguments, mutated in place.
+    """
+    thinking = kwargs.get("thinking")
+
+    if not isinstance(thinking, dict):
+        return
+
+    if thinking.get("type") not in ("adaptive", "enabled"):
+        return
+
+    if "display" in thinking:
+        return
+
+    kwargs["thinking"] = {**thinking, "display": "summarized"}
+
+
+def _extract_reasoning(content: list[Any]) -> str:
+    """Extract the model's reasoning from an Anthropic response content list.
+
+    Args:
+        content: ``Message.content`` from the Anthropic response.
+
+    Returns:
+        Concatenated text from all ``ThinkingBlock`` entries.  Empty when the
+        model produced none, or when ``thinking.display`` left them redacted.
+    """
+    parts: list[str] = []
+
+    for block in content:
+        if hasattr(block, "type") and block.type == "thinking":
+            parts.append(getattr(block, "thinking", ""))
+        elif isinstance(block, dict) and block.get("type") == "thinking":
+            parts.append(str(block.get("thinking", "")))
+
+    return "\n\n".join(p for p in parts if p)
+
+
 def _derive_agent_id(messages: list[ChatMessage]) -> str:
     """Derive a stable agent identity from the system prompt.
 
@@ -349,6 +396,7 @@ def build_anthropic_llm_pair(
 
     content: list[Any] = getattr(response, "content", [])
     output_text = _extract_response_text(content)
+    reasoning = _extract_reasoning(content)
     tool_calls = _extract_anthropic_tool_calls(content)
     usage = _extract_anthropic_usage(response)
 
@@ -374,6 +422,7 @@ def build_anthropic_llm_pair(
             output=output_text,
             tool_calls=tool_calls,
             usage=usage,
+            reasoning=reasoning,
         ),
     )
 
@@ -1054,6 +1103,7 @@ def patch_anthropic(
                 *args: Any,
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
+                _request_summarised_thinking(kwargs)
                 response = _original_sync(self, *args, **kwargs)
 
                 # ChatAnthropic routes through here, but the LangChain
@@ -1077,6 +1127,7 @@ def patch_anthropic(
                 # Sampled now, not at consumption time: the caller may read the
                 # final message after leaving the anthropic_invocation() block.
                 captured = get_invocation_id()
+                _request_summarised_thinking(kwargs)
                 inner = _original_sync_stream(self, *args, **kwargs)
 
                 # Owned by the LangChain callbacks: hand back the SDK's own
@@ -1108,6 +1159,7 @@ def patch_anthropic(
                 *args: Any,
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
+                _request_summarised_thinking(kwargs)
                 response = await _original_async(self, *args, **kwargs)
 
                 # See the sync wrapper: the LangChain callbacks own this
@@ -1131,6 +1183,7 @@ def patch_anthropic(
                 # Not async: stream() returns an async context manager without
                 # being awaited itself.
                 captured = get_invocation_id()
+                _request_summarised_thinking(kwargs)
                 inner = _original_async_stream(self, *args, **kwargs)
 
                 # See the sync stream wrapper.

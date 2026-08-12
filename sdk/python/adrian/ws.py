@@ -154,6 +154,7 @@ def _paired_event_to_proto(event: PairedEvent) -> pb.PairedEvent:
             pb_msg.content = msg["content"]
 
         proto.llm.output = event.data.output
+        proto.llm.reasoning = event.data.reasoning
 
         for tc in event.data.tool_calls:
             pb_tc = proto.llm.tool_calls.add()

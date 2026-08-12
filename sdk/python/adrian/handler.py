@@ -368,6 +368,7 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
             **kwargs: Additional LangChain callback kwargs.
         """
         output = ""
+        reasoning = ""
         typed_tool_calls: list[ToolCallRecord] = []
 
         if response.generations:
@@ -376,6 +377,7 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
 
             if isinstance(gen, ChatGeneration):
                 msg = gen.message
+                reasoning = _extract_reasoning(msg)
                 raw_calls: list[dict[str, str | dict[str, object]]] = (
                     getattr(msg, "tool_calls", None) or []
                 )
@@ -404,6 +406,7 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
             "output": output,
             "tool_calls": typed_tool_calls,
             "usage": usage,
+            "reasoning": reasoning,
         }
 
         session_id = self._resolve_session_id()
@@ -537,6 +540,55 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+
+def _extract_reasoning(message: BaseMessage) -> str:
+    """Pull the model's reasoning out of an AIMessage's content blocks.
+
+    ``ChatGeneration.text`` concatenates text blocks only, so reasoning is
+    dropped unless read off the blocks directly.  Two provider shapes are
+    recognised: OpenAI's ``reasoning`` block carrying a ``summary`` list,
+    and Anthropic's ``thinking`` block carrying a ``thinking`` string.
+
+    Args:
+        message: The AIMessage from the generation.
+
+    Returns:
+        Reasoning text, or ``""`` when the model exposed none.
+    """
+    content: Any = getattr(message, "content", None)
+
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+
+    for raw in cast(list[object], content):
+        if not isinstance(raw, dict):
+            continue
+
+        block = cast(dict[str, Any], raw)
+        btype = block.get("type")
+
+        if btype == "reasoning":
+            summary: Any = block.get("summary")
+
+            if isinstance(summary, list):
+                for entry in cast(list[object], summary):
+                    if not isinstance(entry, dict):
+                        continue
+
+                    text: Any = cast(dict[str, Any], entry).get("text")
+
+                    if text:
+                        parts.append(str(text))
+        elif btype == "thinking":
+            thinking: Any = block.get("thinking")
+
+            if isinstance(thinking, str) and thinking:
+                parts.append(thinking)
+
+    return "\n\n".join(parts)
 
 
 def _build_llm_start_data(

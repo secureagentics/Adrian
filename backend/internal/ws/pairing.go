@@ -36,6 +36,7 @@ func pairedEventToJSON(ev *pb.PairedEvent) (string, error) {
 		view["llm"] = map[string]any{
 			"model":      llm.Model,
 			"output":     llm.Output,
+			"reasoning":  llm.Reasoning,
 			"messages":   chatMessagesToJSON(llm.Messages),
 			"tool_calls": toolCallsToJSON(llm.ToolCalls),
 			"usage":      tokenUsageToJSON(llm.Usage),

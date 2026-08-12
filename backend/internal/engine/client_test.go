@@ -189,6 +189,54 @@ func TestExtractTraceLLMWithParent(t *testing.T) {
 	}
 }
 
+// TestExtractTraceLLMReasoning covers a client that sends reasoning:
+// it becomes the chain of thought and the output moves to its own
+// labelled line. Both are wrapped, reasoning is model-generated and no
+// more trustworthy than the response.
+func TestExtractTraceLLMReasoning(t *testing.T) {
+	ev := &pb.PairedEvent{
+		PairType: pb.PairType_PAIR_TYPE_LLM,
+		Agent:    &pb.AgentContext{AgentId: "billing"},
+		Data: &pb.PairedEvent_Llm{
+			Llm: &pb.LlmPairData{
+				Model:     "claude-opus-5",
+				Output:    "Refund issued.",
+				Reasoning: "Order is 5 days old so the policy allows it.",
+			},
+		},
+	}
+	const guid = "test-guid"
+	got := extractTrace(ev, guid)
+	wantWrapped := []string{
+		`Chain of Thought: <adrian-untrusted id="test-guid">Order is 5 days old so the policy allows it.</adrian-untrusted id="test-guid">`,
+		`Response: <adrian-untrusted id="test-guid">Refund issued.</adrian-untrusted id="test-guid">`,
+	}
+	for _, w := range wantWrapped {
+		if !strings.Contains(got, w) {
+			t.Errorf("extractTrace missing line %q in:\n%s", w, got)
+		}
+	}
+}
+
+// TestExtractTraceLLMReasoningAbsentUnchanged pins the pre-reasoning
+// rendering for clients that never set the field: output stays the
+// chain of thought and no Response line appears.
+func TestExtractTraceLLMReasoningAbsentUnchanged(t *testing.T) {
+	ev := &pb.PairedEvent{
+		PairType: pb.PairType_PAIR_TYPE_LLM,
+		Agent:    &pb.AgentContext{AgentId: "billing"},
+		Data: &pb.PairedEvent_Llm{
+			Llm: &pb.LlmPairData{Model: "gpt-4o-mini", Output: "Refund issued."},
+		},
+	}
+	got := extractTrace(ev, "test-guid")
+	want := "\nClassify this agent trace:\n\n" +
+		`Chain of Thought: <adrian-untrusted id="test-guid">Refund issued.</adrian-untrusted id="test-guid">`
+	if got != want {
+		t.Errorf("rendering changed for a client without reasoning:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
 // -----------------------------------------------------------------
 // HTTPClient.Classify
 // -----------------------------------------------------------------

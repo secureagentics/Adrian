@@ -23,12 +23,14 @@ from adrian.anthropic_handler import (
     _emit_pair,
     _extract_anthropic_tool_calls,
     _extract_anthropic_usage,
+    _extract_reasoning,
     _extract_response_text,
     _flatten_anthropic_messages,
     _flatten_content,
     _gate_response,
     _GatedAsyncMessageStreamManager,
     _GatedMessageStreamManager,
+    _request_summarised_thinking,
     _resolve_invocation_id,
     _rewrite_blocked_response,
     _safe_snapshot,
@@ -88,6 +90,23 @@ def _make_text_response(
     response.model = model
     response.content = [text_block]
     response.usage = usage
+
+    return response
+
+
+def _make_thinking_response(
+    *,
+    model: str = "claude-opus-5",
+    thinking: str = "Let me work through this.",
+    text: str = "Hello!",
+) -> MagicMock:
+    """Mock response whose content leads with a thinking block."""
+    thinking_block = MagicMock()
+    thinking_block.type = "thinking"
+    thinking_block.thinking = thinking
+
+    response = _make_text_response(model=model, text=text)
+    response.content = [thinking_block, *response.content]
 
     return response
 
@@ -552,6 +571,121 @@ class TestBuildAnthropicLlmPair:
             run_id="r",
         )
         assert pair.parent is None
+
+    def test_thinking_becomes_reasoning(self) -> None:
+        pair = build_anthropic_llm_pair(
+            flat_messages=[ChatMessage(role="user", content="hi")],
+            response=_make_thinking_response(
+                thinking="Weighing the options.", text="Done."
+            ),
+            model="m",
+            session_id="s",
+            invocation_id="i",
+            run_id="r",
+        )
+        assert isinstance(pair.data, LlmPairData)
+        assert pair.data.reasoning == "Weighing the options."
+        # Reasoning is additive: the response text is untouched.
+        assert pair.data.output == "Done."
+
+    def test_no_thinking_leaves_reasoning_empty(self) -> None:
+        pair = build_anthropic_llm_pair(
+            flat_messages=[ChatMessage(role="user", content="hi")],
+            response=_make_text_response(text="Done."),
+            model="m",
+            session_id="s",
+            invocation_id="i",
+            run_id="r",
+        )
+        assert isinstance(pair.data, LlmPairData)
+        assert pair.data.reasoning == ""
+
+
+# ------------------------------------------------------------------
+# _extract_reasoning
+# ------------------------------------------------------------------
+
+
+class TestExtractReasoning:
+    def test_object_thinking_block(self) -> None:
+        block = MagicMock()
+        block.type = "thinking"
+        block.thinking = "step one"
+        assert _extract_reasoning([block]) == "step one"
+
+    def test_dict_thinking_block(self) -> None:
+        blocks = [{"type": "thinking", "thinking": "step one"}]
+        assert _extract_reasoning(blocks) == "step one"
+
+    def test_multiple_blocks_joined(self) -> None:
+        blocks = [
+            {"type": "thinking", "thinking": "step one"},
+            {"type": "text", "text": "ignored"},
+            {"type": "thinking", "thinking": "step two"},
+        ]
+        assert _extract_reasoning(blocks) == "step one\n\nstep two"
+
+    def test_redacted_thinking_is_not_reasoning(self) -> None:
+        # redacted_thinking carries an encrypted blob, not readable text.
+        blocks = [{"type": "redacted_thinking", "data": "AAAA"}]
+        assert _extract_reasoning(blocks) == ""
+
+    def test_omitted_thinking_yields_nothing(self) -> None:
+        # display="omitted" still emits a block, with empty text.
+        blocks = [{"type": "thinking", "thinking": "", "signature": "sig"}]
+        assert _extract_reasoning(blocks) == ""
+
+    def test_text_only_content(self) -> None:
+        assert _extract_reasoning([{"type": "text", "text": "hi"}]) == ""
+
+
+# ------------------------------------------------------------------
+# _request_summarised_thinking
+# ------------------------------------------------------------------
+
+
+class TestRequestSummarisedThinking:
+    def test_adaptive_gets_summarized_display(self) -> None:
+        kwargs: dict[str, Any] = {"thinking": {"type": "adaptive"}}
+        _request_summarised_thinking(kwargs)
+        assert kwargs["thinking"] == {"type": "adaptive", "display": "summarized"}
+
+    def test_enabled_gets_summarized_display(self) -> None:
+        kwargs: dict[str, Any] = {
+            "thinking": {"type": "enabled", "budget_tokens": 2048}
+        }
+        _request_summarised_thinking(kwargs)
+        assert kwargs["thinking"]["display"] == "summarized"
+        assert kwargs["thinking"]["budget_tokens"] == 2048
+
+    def test_explicit_display_is_respected(self) -> None:
+        kwargs: dict[str, Any] = {
+            "thinking": {"type": "adaptive", "display": "omitted"}
+        }
+        _request_summarised_thinking(kwargs)
+        assert kwargs["thinking"]["display"] == "omitted"
+
+    def test_thinking_disabled_untouched(self) -> None:
+        kwargs: dict[str, Any] = {"thinking": {"type": "disabled"}}
+        _request_summarised_thinking(kwargs)
+        assert kwargs["thinking"] == {"type": "disabled"}
+
+    def test_no_thinking_key_untouched(self) -> None:
+        kwargs: dict[str, Any] = {"model": "claude-opus-5"}
+        _request_summarised_thinking(kwargs)
+        assert "thinking" not in kwargs
+
+    def test_non_dict_thinking_untouched(self) -> None:
+        kwargs: dict[str, Any] = {"thinking": "adaptive"}
+        _request_summarised_thinking(kwargs)
+        assert kwargs["thinking"] == "adaptive"
+
+    def test_caller_dict_is_not_mutated_in_place(self) -> None:
+        # The caller may reuse their thinking config across calls.
+        original = {"type": "adaptive"}
+        kwargs: dict[str, Any] = {"thinking": original}
+        _request_summarised_thinking(kwargs)
+        assert original == {"type": "adaptive"}
 
 
 # ------------------------------------------------------------------
@@ -1884,7 +2018,9 @@ class TestChatModelScopeSuppression:
     """ChatAnthropic drives the same SDK methods Adrian patches.
 
     Without suppression one LangChain call produces two LLM events: one
-    from the callbacks and one from the Anthropic patch.
+    from the callbacks and one from the Anthropic patch. The thinking
+    injection must survive suppression, since it is what gives the
+    LangChain event its reasoning in the first place.
     """
 
     @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
@@ -1946,6 +2082,24 @@ class TestChatModelScopeSuppression:
         Messages.create(MagicMock(), **_KWARGS)
 
         assert len(collector.events) == 1
+
+    def test_thinking_injection_still_applies_inside_scope(self) -> None:
+        from anthropic.resources.messages import Messages
+
+        seen: list[dict[str, Any]] = []
+
+        def _capture(_self: Any, **kw: Any) -> Any:  # noqa: ANN401
+            seen.append(kw)
+            return _make_text_response()
+
+        Messages.create = _capture  # type: ignore[method-assign, assignment]
+        hooks, _ = _wired_hooks(AdrianConfig(session_id="s"))
+        patch_anthropic(lambda: hooks, lambda: AdrianConfig(session_id="s"))
+
+        with chat_model_scope():
+            Messages.create(MagicMock(), thinking={"type": "adaptive"}, **_KWARGS)
+
+        assert seen[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
 
     def test_stream_returns_sdk_manager_inside_scope(self) -> None:
         from anthropic.resources.messages import Messages

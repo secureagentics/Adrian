@@ -102,6 +102,24 @@ class TestPairedEventToProto:
         assert proto.llm.tool_calls[0].id == "tc-1"
         assert proto.llm.tool_calls[0].name == "foo"
 
+    def test_llm_reasoning_serialised(self) -> None:
+        pe = _llm_pair()
+        assert isinstance(pe.data, LlmPairData)
+        pe.data.reasoning = "thinking it through"
+        proto = _paired_event_to_proto(pe)
+        assert proto.llm.reasoning == "thinking it through"
+        assert proto.llm.output == "sure"
+
+    def test_llm_reasoning_absent_costs_nothing(self) -> None:
+        # An unset proto3 scalar is not serialised, so older clients that
+        # never populate reasoning put no extra bytes on the wire.
+        pe = _llm_pair()
+        proto = _paired_event_to_proto(pe)
+        assert proto.llm.reasoning == ""
+        without = len(proto.SerializeToString())
+        proto.llm.reasoning = "x"
+        assert len(proto.SerializeToString()) > without
+
     def test_parent_context(self) -> None:
         pe = _tool_pair()
         pe.parent = ParentContext(

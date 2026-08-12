@@ -221,6 +221,7 @@ class EventPairBuffer:
                 output=llm_end.get("output", ""),
                 tool_calls=tool_calls,
                 usage=llm_end.get("usage"),
+                reasoning=llm_end.get("reasoning", ""),
             ),
             parent_run_id=start.parent_run_id,
             metadata=start.metadata,
