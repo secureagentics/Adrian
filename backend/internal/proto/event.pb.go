@@ -451,7 +451,9 @@ type LlmPairData struct {
 	// Tool calls the model decided to make.
 	ToolCalls []*ToolCall `protobuf:"bytes,4,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
 	// Token usage counters.
-	Usage         *TokenUsage `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`
+	Usage *TokenUsage `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`
+	// The model's reasoning / chain of thought.
+	Reasoning     string `protobuf:"bytes,6,opt,name=reasoning,proto3" json:"reasoning,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -519,6 +521,13 @@ func (x *LlmPairData) GetUsage() *TokenUsage {
 		return x.Usage
 	}
 	return nil
+}
+
+func (x *LlmPairData) GetReasoning() string {
+	if x != nil {
+		return x.Reasoning
+	}
+	return ""
 }
 
 // ToolPairData is the payload for PAIR_TYPE_TOOL events: one tool_start
@@ -1600,14 +1609,15 @@ const file_event_proto_rawDesc = "" +
 	"\fAgentContext\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12#\n" +
 	"\rsystem_prompt\x18\x02 \x01(\tR\fsystemPrompt\x12)\n" +
-	"\x10user_instruction\x18\x03 \x01(\tR\x0fuserInstruction\"\xeb\x01\n" +
+	"\x10user_instruction\x18\x03 \x01(\tR\x0fuserInstruction\"\x89\x02\n" +
 	"\vLlmPairData\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12;\n" +
 	"\bmessages\x18\x02 \x03(\v2\x1f.adrian.core_api.v1.ChatMessageR\bmessages\x12\x16\n" +
 	"\x06output\x18\x03 \x01(\tR\x06output\x12;\n" +
 	"\n" +
 	"tool_calls\x18\x04 \x03(\v2\x1c.adrian.core_api.v1.ToolCallR\ttoolCalls\x124\n" +
-	"\x05usage\x18\x05 \x01(\v2\x1e.adrian.core_api.v1.TokenUsageR\x05usage\"{\n" +
+	"\x05usage\x18\x05 \x01(\v2\x1e.adrian.core_api.v1.TokenUsageR\x05usage\x12\x1c\n" +
+	"\treasoning\x18\x06 \x01(\tR\treasoning\"{\n" +
 	"\fToolPairData\x12\x1b\n" +
 	"\ttool_name\x18\x01 \x01(\tR\btoolName\x12 \n" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +

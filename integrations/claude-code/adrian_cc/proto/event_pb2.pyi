@@ -220,10 +220,13 @@ class LlmPairData(_message.Message):
     OUTPUT_FIELD_NUMBER: _builtins.int
     TOOL_CALLS_FIELD_NUMBER: _builtins.int
     USAGE_FIELD_NUMBER: _builtins.int
+    REASONING_FIELD_NUMBER: _builtins.int
     model: _builtins.str
     """Model class name (e.g. "ChatAnthropic", "ChatOpenAI")."""
     output: _builtins.str
     """The model's text response."""
+    reasoning: _builtins.str
+    """The model's reasoning / chain of thought."""
     @_builtins.property
     def messages(self) -> _containers.RepeatedCompositeFieldContainer[Global___ChatMessage]:
         """Ordered conversation messages sent to the model."""
@@ -244,10 +247,11 @@ class LlmPairData(_message.Message):
         output: _builtins.str = ...,
         tool_calls: _abc.Iterable[Global___ToolCall] | None = ...,
         usage: Global___TokenUsage | None = ...,
+        reasoning: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["usage", b"usage"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["messages", b"messages", "model", b"model", "output", b"output", "tool_calls", b"tool_calls", "usage", b"usage"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["messages", b"messages", "model", b"model", "output", b"output", "reasoning", b"reasoning", "tool_calls", b"tool_calls", "usage", b"usage"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
 
 Global___LlmPairData: _TypeAlias = LlmPairData  # noqa: Y015

@@ -70,6 +70,8 @@ message LlmPairData {
   repeated ToolCall tool_calls = 4;
   // Token usage counters.
   TokenUsage usage = 5;
+  // The model's reasoning / chain of thought.
+  string reasoning = 6;
 }
 
 // ToolPairData is the payload for PAIR_TYPE_TOOL events: one tool_start
