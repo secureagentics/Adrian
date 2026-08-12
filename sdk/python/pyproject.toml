@@ -51,6 +51,7 @@ dev = [
     "ruff==0.15.12",
     "basedpyright==1.39.3",
     "pre-commit>=4.6.0",
+    "mypy-protobuf==5.0.0",
     "langgraph==1.1.2",
     "langgraph-prebuilt==1.0.8",
     "langchain-mcp-adapters>=0.2.2",
