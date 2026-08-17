@@ -53,7 +53,14 @@ export type ServerFrame =
   | { loginAck: LoginAck }
   | { verdict: Verdict };
 
-const protoSource = `
+/**
+ * Hand-maintained mirror of proto/event.proto.
+ *
+ * There is no TS codegen step, so this must be updated by hand whenever the
+ * canonical schema changes. `tests/protoDrift.test.ts` parses both and fails
+ * if they disagree.
+ */
+export const protoSource = `
 syntax = "proto3";
 package adrian.core_api.v1;
 enum PairType { PAIR_TYPE_UNSPECIFIED = 0; PAIR_TYPE_LLM = 1; PAIR_TYPE_TOOL = 2; }
@@ -63,19 +70,20 @@ message TokenUsage { int32 prompt_tokens = 1; int32 completion_tokens = 2; int32
 message AgentContext { string agent_id = 1; string system_prompt = 2; string user_instruction = 3; }
 message LlmPairData { string model = 1; repeated ChatMessage messages = 2; string output = 3; repeated ToolCall tool_calls = 4; TokenUsage usage = 5; string reasoning = 6; }
 message ToolPairData { string tool_name = 1; string tool_call_id = 2; string input = 3; string output = 4; }
-message PairedEvent { string event_id = 1; string invocation_id = 2; string session_id = 3; string run_id = 4; string parent_run_id = 5; string timestamp = 6; PairType pair_type = 7; AgentContext agent = 8; AgentContext parent = 9; oneof data { LlmPairData llm = 10; ToolPairData tool = 11; } bytes metadata_json = 20; }
+message PairedEvent { string event_id = 1; string invocation_id = 2; string session_id = 3; string run_id = 4; string parent_run_id = 5; string timestamp = 6; PairType pair_type = 7; AgentContext agent = 8; AgentContext parent = 9; oneof data { LlmPairData llm = 10; ToolPairData tool = 11; } string connection_id = 12; bytes metadata_json = 20; string source = 21; }
 message PairedEventBatch { repeated PairedEvent events = 1; }
 message McpServer { string name = 1; string transport = 2; string endpoint = 3; }
 message McpInventory { repeated McpServer servers = 1; }
 message LLMStack { string provider = 1; string model = 2; }
-message SessionLogin { string session_id = 1; LLMStack llm_stack = 2; reserved 3; uint32 schema_version = 4; }
+message SessionLogin { string session_id = 1; LLMStack llm_stack = 2; reserved 3; uint32 schema_version = 4; string source = 5; string connection_id = 6; }
 message ClientFrame { reserved 2; oneof frame { SessionLogin login = 1; PairedEventBatch paired_batch = 3; McpInventory mcp_inventory = 4; } }
 enum Mode { MODE_UNSPECIFIED = 0; MODE_ALERT = 1; MODE_HITL = 2; MODE_BLOCK = 3; }
-message PolicySnapshot { Mode mode = 1; bool policy_m0 = 2; bool policy_m2 = 3; bool policy_m3 = 4; bool policy_m4 = 5; }
+message PolicySnapshot { Mode mode = 1; bool policy_m0 = 2; bool policy_m2 = 3; bool policy_m3 = 4; bool policy_m4 = 5; bool fail_closed_on_classifier_error = 6; }
 message HitlResponse { bool continue_execution = 1; }
 message LoginAck { PolicySnapshot policy = 1; }
 message ServerFrame { oneof frame { LoginAck login_ack = 1; Verdict verdict = 2; } }
-message Verdict { string event_id = 1; string session_id = 2; reserved 3; string mad_code = 4; reserved 5; PolicySnapshot policy = 6; HitlResponse hitl = 7; }
+enum VerdictStatus { VERDICT_STATUS_UNSPECIFIED = 0; VERDICT_STATUS_OK = 1; VERDICT_STATUS_ERROR = 2; }
+message Verdict { string event_id = 1; string session_id = 2; reserved 3; string mad_code = 4; reserved 5; PolicySnapshot policy = 6; HitlResponse hitl = 7; VerdictStatus status = 8; }
 `;
 
 const root = protobuf.parse(protoSource, { keepCase: true }).root;
