@@ -542,13 +542,57 @@ class AdrianCallbackHandler(AsyncCallbackHandler):
 # ------------------------------------------------------------------
 
 
-def _extract_reasoning(message: BaseMessage) -> str:
-    """Pull the model's reasoning out of an AIMessage's content blocks.
+def _reasoning_block_text(block: dict[str, Any]) -> str:
+    """Read the human-readable text out of one reasoning block.
 
-    ``ChatGeneration.text`` concatenates text blocks only, so reasoning is
-    dropped unless read off the blocks directly.  Two provider shapes are
-    recognised: OpenAI's ``reasoning`` block carrying a ``summary`` list,
-    and Anthropic's ``thinking`` block carrying a ``thinking`` string.
+    Providers and LangChain output versions disagree on where the text
+    sits, so three layouts are accepted:
+
+    * a ``summary`` list of ``{"type": "summary_text", "text": ...}``
+      entries (OpenAI Responses, LangChain's default and
+      ``responses/v1``),
+    * a bare ``reasoning`` string (LangChain ``output_version="v1"``,
+      which emits one block per reasoning pass),
+    * Anthropic's ``thinking`` string.
+
+    ``encrypted_content`` is skipped: it is an opaque blob for
+    multi-turn reuse, not readable text.
+    """
+    parts: list[str] = []
+    summary: Any = block.get("summary")
+
+    if isinstance(summary, list):
+        for entry in cast(list[object], summary):
+            if not isinstance(entry, dict):
+                continue
+
+            text: Any = cast(dict[str, Any], entry).get("text")
+
+            if text:
+                parts.append(str(text))
+
+    if parts:
+        return "\n\n".join(parts)
+
+    # No summary: fall through to the single-string layouts. Checked
+    # second so a populated summary never gets duplicated by a block
+    # that carries both.
+    for key in ("reasoning", "thinking"):
+        value: Any = block.get(key)
+
+        if isinstance(value, str) and value:
+            return value
+
+    return ""
+
+
+def _extract_reasoning(message: BaseMessage) -> str:
+    """Pull the model's reasoning off an AIMessage.
+
+    ``ChatGeneration.text`` concatenates text blocks only, so reasoning
+    is dropped unless read off the message directly. Content blocks are
+    the usual home; ``output_version="v0"`` instead parks the whole
+    block in ``additional_kwargs``, so that is checked as a fallback.
 
     Args:
         message: The AIMessage from the generation.
@@ -557,38 +601,39 @@ def _extract_reasoning(message: BaseMessage) -> str:
         Reasoning text, or ``""`` when the model exposed none.
     """
     content: Any = getattr(message, "content", None)
-
-    if not isinstance(content, list):
-        return ""
-
     parts: list[str] = []
 
-    for raw in cast(list[object], content):
-        if not isinstance(raw, dict):
-            continue
+    if isinstance(content, list):
+        for raw in cast(list[object], content):
+            if not isinstance(raw, dict):
+                continue
 
-        block = cast(dict[str, Any], raw)
-        btype = block.get("type")
+            block = cast(dict[str, Any], raw)
 
-        if btype == "reasoning":
-            summary: Any = block.get("summary")
+            # redacted_thinking carries an encrypted blob, never text.
+            if block.get("type") not in ("reasoning", "thinking"):
+                continue
 
-            if isinstance(summary, list):
-                for entry in cast(list[object], summary):
-                    if not isinstance(entry, dict):
-                        continue
+            text = _reasoning_block_text(block)
 
-                    text: Any = cast(dict[str, Any], entry).get("text")
+            if text:
+                parts.append(text)
 
-                    if text:
-                        parts.append(str(text))
-        elif btype == "thinking":
-            thinking: Any = block.get("thinking")
+    if parts:
+        return "\n\n".join(parts)
 
-            if isinstance(thinking, str) and thinking:
-                parts.append(thinking)
+    extra: Any = getattr(message, "additional_kwargs", None)
 
-    return "\n\n".join(parts)
+    if isinstance(extra, dict):
+        blob: Any = cast(dict[str, Any], extra).get("reasoning")
+
+        if isinstance(blob, dict):
+            return _reasoning_block_text(cast(dict[str, Any], blob))
+
+        if isinstance(blob, str):
+            return blob
+
+    return ""
 
 
 def _build_llm_start_data(

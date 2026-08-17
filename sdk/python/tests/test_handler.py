@@ -290,6 +290,103 @@ class TestReasoningInLlmPair:
         assert data.reasoning == ""
         assert data.output == "391"
 
+    async def test_output_version_v1_reasoning_string_blocks(
+        self,
+        handler_and_events: tuple[AdrianCallbackHandler, list[PairedEvent]],
+    ) -> None:
+        # output_version="v1" drops the summary list and emits one block
+        # per reasoning pass, each carrying a bare `reasoning` string.
+        handler, events = handler_and_events
+        msg = AIMessage(
+            content=[
+                {"type": "reasoning", "id": "rs_1", "reasoning": "First pass."},
+                {"type": "reasoning", "id": "rs_1", "reasoning": "Second pass."},
+                {"type": "text", "text": "391"},
+            ]
+        )
+        await self._emit(handler, msg)
+
+        data = events[0].data
+        assert isinstance(data, LlmPairData)
+        assert data.reasoning == "First pass.\n\nSecond pass."
+        assert data.output == "391"
+
+    async def test_output_version_v0_reasoning_in_additional_kwargs(
+        self,
+        handler_and_events: tuple[AdrianCallbackHandler, list[PairedEvent]],
+    ) -> None:
+        # output_version="v0" keeps content text-only and parks the whole
+        # reasoning block in additional_kwargs.
+        handler, events = handler_and_events
+        msg = AIMessage(
+            content=[{"type": "text", "text": "391"}],
+            additional_kwargs={
+                "reasoning": {
+                    "id": "rs_1",
+                    "type": "reasoning",
+                    "summary": [
+                        {"type": "summary_text", "text": "First step."},
+                        {"type": "summary_text", "text": "Second step."},
+                    ],
+                    "encrypted_content": "gAAAA...",
+                }
+            },
+        )
+        await self._emit(handler, msg)
+
+        data = events[0].data
+        assert isinstance(data, LlmPairData)
+        assert data.reasoning == "First step.\n\nSecond step."
+        assert data.output == "391"
+
+    async def test_content_blocks_win_over_additional_kwargs(
+        self,
+        handler_and_events: tuple[AdrianCallbackHandler, list[PairedEvent]],
+    ) -> None:
+        # The fallback must not append to, or duplicate, a block that
+        # content already supplied.
+        handler, events = handler_and_events
+        msg = AIMessage(
+            content=[
+                {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "From content."}],
+                },
+                {"type": "text", "text": "391"},
+            ],
+            additional_kwargs={"reasoning": {"reasoning": "From kwargs."}},
+        )
+        await self._emit(handler, msg)
+
+        data = events[0].data
+        assert isinstance(data, LlmPairData)
+        assert data.reasoning == "From content."
+
+    async def test_encrypted_only_reasoning_yields_nothing(
+        self,
+        handler_and_events: tuple[AdrianCallbackHandler, list[PairedEvent]],
+    ) -> None:
+        # o4-mini on an unverified org: block present, summary empty, the
+        # real chain of thought only as an opaque blob.
+        handler, events = handler_and_events
+        msg = AIMessage(
+            content=[
+                {
+                    "type": "reasoning",
+                    "summary": [],
+                    "content": [],
+                    "encrypted_content": "gAAAAABqgu5W...",
+                },
+                {"type": "text", "text": "391"},
+            ]
+        )
+        await self._emit(handler, msg)
+
+        data = events[0].data
+        assert isinstance(data, LlmPairData)
+        assert data.reasoning == ""
+        assert data.output == "391"
+
 
 class TestExtractModelName:
     def test_none_returns_unknown(self) -> None:
