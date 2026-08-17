@@ -39,7 +39,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables.base import Runnable
 from langchain_core.runnables.config import ensure_config
 
-from adrian.context import get_invocation_id, set_invocation_id
+from adrian.context import chat_model_scope, get_invocation_id, set_invocation_id
 from adrian.ws import should_halt
 
 if TYPE_CHECKING:
@@ -262,6 +262,9 @@ def _patch_chat_model() -> None:
     original_astream = BaseChatModel.astream
     original_stream = BaseChatModel.stream
 
+    # chat_model_scope suppresses the provider-level patch for the
+    # duration of the request. ChatAnthropic calls the same Anthropic SDK
+    # methods Adrian patches, so without it one call yields two events.
     def patched_invoke(
         self: Any,  # noqa: ANN401
         input: Any,  # noqa: A002, ANN401
@@ -269,7 +272,8 @@ def _patch_chat_model() -> None:
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        return original_invoke(self, input, config=config, **kwargs)
+        with chat_model_scope():
+            return original_invoke(self, input, config=config, **kwargs)
 
     async def patched_ainvoke(
         self: Any,  # noqa: ANN401
@@ -278,7 +282,8 @@ def _patch_chat_model() -> None:
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        return await original_ainvoke(self, input, config=config, **kwargs)
+        with chat_model_scope():
+            return await original_ainvoke(self, input, config=config, **kwargs)
 
     async def patched_astream(
         self: Any,  # noqa: ANN401
@@ -287,8 +292,9 @@ def _patch_chat_model() -> None:
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        async for chunk in original_astream(self, input, config=config, **kwargs):
-            yield chunk
+        with chat_model_scope():
+            async for chunk in original_astream(self, input, config=config, **kwargs):
+                yield chunk
 
     def patched_stream(
         self: Any,  # noqa: ANN401
@@ -297,7 +303,8 @@ def _patch_chat_model() -> None:
         **kwargs: Any,
     ) -> Any:  # noqa: ANN401
         config = _inject_callbacks(config)
-        yield from original_stream(self, input, config=config, **kwargs)
+        with chat_model_scope():
+            yield from original_stream(self, input, config=config, **kwargs)
 
     BaseChatModel.invoke = patched_invoke  # type: ignore[assignment]
     BaseChatModel.ainvoke = patched_ainvoke  # type: ignore[assignment]

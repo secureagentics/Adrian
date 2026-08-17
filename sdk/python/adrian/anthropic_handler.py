@@ -77,7 +77,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from adrian.config import AdrianConfig
-from adrian.context import get_invocation_id, set_invocation_id
+from adrian.context import get_invocation_id, in_chat_model, set_invocation_id
 from adrian.format.types import AgentContext, LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
 from adrian.types import ChatMessage, EventData, TokenUsage, ToolCallRecord
@@ -1055,6 +1055,14 @@ def patch_anthropic(
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = _original_sync(self, *args, **kwargs)
+
+                # ChatAnthropic routes through here, but the LangChain
+                # callbacks already emit and gate this call. Injecting
+                # thinking above still applies, so the LangChain event
+                # keeps its reasoning.
+                if in_chat_model():
+                    return response
+
                 # Emit + gate together on the WS loop (BLOCK/HITL); degrades to
                 # audit-only emission when gating isn't possible.
                 return _emit_and_gate_sync(response, kwargs)
@@ -1069,10 +1077,14 @@ def patch_anthropic(
                 # Sampled now, not at consumption time: the caller may read the
                 # final message after leaving the anthropic_invocation() block.
                 captured = get_invocation_id()
+                inner = _original_sync_stream(self, *args, **kwargs)
 
-                return _GatedMessageStreamManager(
-                    _original_sync_stream(self, *args, **kwargs), kwargs, captured
-                )
+                # Owned by the LangChain callbacks: hand back the SDK's own
+                # manager so nothing is emitted or gated twice.
+                if in_chat_model():
+                    return inner
+
+                return _GatedMessageStreamManager(inner, kwargs, captured)
 
             sync_cls.create = _patched_sync_create  # type: ignore[method-assign]
             sync_cls.stream = _patched_sync_stream  # type: ignore[method-assign]
@@ -1097,6 +1109,12 @@ def patch_anthropic(
                 **kwargs: Any,  # noqa: ANN401
             ) -> Any:  # noqa: ANN401
                 response = await _original_async(self, *args, **kwargs)
+
+                # See the sync wrapper: the LangChain callbacks own this
+                # call, so emitting here would double-count it.
+                if in_chat_model():
+                    return response
+
                 # Emit first so the verdict future is registered, then gate:
                 # under BLOCK/HITL this holds the response until the verdict
                 # arrives and rewrites blocked tool calls to a [BLOCKED] block.
@@ -1113,10 +1131,13 @@ def patch_anthropic(
                 # Not async: stream() returns an async context manager without
                 # being awaited itself.
                 captured = get_invocation_id()
+                inner = _original_async_stream(self, *args, **kwargs)
 
-                return _GatedAsyncMessageStreamManager(
-                    _original_async_stream(self, *args, **kwargs), kwargs, captured
-                )
+                # See the sync stream wrapper.
+                if in_chat_model():
+                    return inner
+
+                return _GatedAsyncMessageStreamManager(inner, kwargs, captured)
 
             async_cls.create = _patched_async_create  # type: ignore[method-assign]
             async_cls.stream = _patched_async_stream  # type: ignore[method-assign]

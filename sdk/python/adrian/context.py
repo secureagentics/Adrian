@@ -19,6 +19,8 @@ Tracks two concepts that LangChain's callback system does not provide:
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 
 from adrian.format.types import AgentContext, ParentContext
@@ -26,6 +28,11 @@ from adrian.format.types import AgentContext, ParentContext
 _invocation_id: ContextVar[str | None] = ContextVar(
     "adrian_invocation_id",
     default=None,
+)
+
+_in_chat_model: ContextVar[bool] = ContextVar(
+    "adrian_in_chat_model",
+    default=False,
 )
 
 
@@ -52,6 +59,35 @@ def set_invocation_id(invocation_id: str) -> Token[str | None]:
         Token for resetting the context var when the invocation ends.
     """
     return _invocation_id.set(invocation_id)
+
+
+@contextmanager
+def chat_model_scope() -> Generator[None]:
+    """Mark the calling frame as a LangChain chat model invocation.
+
+    ``ChatAnthropic`` reaches Anthropic through the same SDK entry points
+    Adrian patches, so without this both the LangChain callbacks and the
+    Anthropic patch would describe one call as two events. The patched
+    ``BaseChatModel`` methods hold this scope for the duration of the
+    request; :func:`in_chat_model` lets the Anthropic patch see it and
+    stand down.
+    """
+    token = _in_chat_model.set(True)
+
+    try:
+        yield
+    finally:
+        _in_chat_model.reset(token)
+
+
+def in_chat_model() -> bool:
+    """Report whether a LangChain chat model call is on the stack.
+
+    Returns:
+        ``True`` when the LangChain callbacks already own this call, so
+        provider-level instrumentation should not emit its own event.
+    """
+    return _in_chat_model.get()
 
 
 class AgentContextTracker:

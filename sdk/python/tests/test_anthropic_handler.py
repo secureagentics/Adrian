@@ -38,7 +38,12 @@ from adrian.anthropic_handler import (
     patch_anthropic,
 )
 from adrian.config import AdrianConfig
-from adrian.context import get_invocation_id, set_invocation_id
+from adrian.context import (
+    chat_model_scope,
+    get_invocation_id,
+    in_chat_model,
+    set_invocation_id,
+)
 from adrian.format.types import LlmPairData, PairedEvent
 from adrian.hooks import HookRegistry
 from adrian.proto import event_pb2 as pb
@@ -1868,3 +1873,104 @@ class TestPatchAnthropicStream:
         # Sampled inside the block, so it survives the context exit.
         assert get_invocation_id() is None
         assert manager._state._invocation_id == expected  # pyright: ignore[reportPrivateUsage]
+
+
+# ------------------------------------------------------------------
+# LangChain co-instrumentation
+# ------------------------------------------------------------------
+
+
+class TestChatModelScopeSuppression:
+    """ChatAnthropic drives the same SDK methods Adrian patches.
+
+    Without suppression one LangChain call produces two LLM events: one
+    from the callbacks and one from the Anthropic patch.
+    """
+
+    @pytest.fixture(autouse=True)  # pyright: ignore[reportUntypedFunctionDecorator]
+    def _restore_sdk(self) -> Any:  # noqa: ANN401
+        from anthropic.resources.messages import AsyncMessages, Messages
+
+        saved = [
+            (Messages, "create", Messages.create),
+            (Messages, "stream", Messages.stream),
+            (AsyncMessages, "create", AsyncMessages.create),
+            (AsyncMessages, "stream", AsyncMessages.stream),
+        ]
+        flags = [
+            (cls, getattr(cls, "_adrian_patched", None))
+            for cls in (Messages, AsyncMessages)
+        ]
+
+        for cls, _flag in flags:
+            if hasattr(cls, "_adrian_patched"):
+                delattr(cls, "_adrian_patched")
+
+        yield
+
+        for cls, name, original in saved:
+            setattr(cls, name, original)
+
+        for cls, flag in flags:
+            if hasattr(cls, "_adrian_patched"):
+                delattr(cls, "_adrian_patched")
+            if flag is not None:
+                cls._adrian_patched = flag  # type: ignore[attr-defined]
+
+        _ah._hooks_getter = None
+        _ah._config_getter = None
+        _ah._ws_getter = None
+        _ah._handler_getter = None
+
+    def test_no_event_emitted_inside_scope(self) -> None:
+        from anthropic.resources.messages import Messages
+
+        response = _make_text_response()
+        Messages.create = lambda _self, **_kw: response  # type: ignore[method-assign, assignment]
+        hooks, collector = _wired_hooks(AdrianConfig(session_id="s"))
+        patch_anthropic(lambda: hooks, lambda: AdrianConfig(session_id="s"))
+
+        with chat_model_scope():
+            returned = Messages.create(MagicMock(), **_KWARGS)
+
+        assert returned is response
+        assert collector.events == []
+
+    def test_event_emitted_outside_scope(self) -> None:
+        from anthropic.resources.messages import Messages
+
+        Messages.create = lambda _self, **_kw: _make_text_response()  # type: ignore[method-assign, assignment]
+        hooks, collector = _wired_hooks(AdrianConfig(session_id="s"))
+        patch_anthropic(lambda: hooks, lambda: AdrianConfig(session_id="s"))
+
+        Messages.create(MagicMock(), **_KWARGS)
+
+        assert len(collector.events) == 1
+
+    def test_stream_returns_sdk_manager_inside_scope(self) -> None:
+        from anthropic.resources.messages import Messages
+
+        inner = _FakeStreamManager(_FakeMessageStream(_make_text_response()))
+        Messages.stream = lambda _self, **_kw: inner  # type: ignore[method-assign, assignment]
+        hooks, _ = _wired_hooks(AdrianConfig(session_id="s"))
+        patch_anthropic(lambda: hooks, lambda: AdrianConfig(session_id="s"))
+
+        with chat_model_scope():
+            manager = Messages.stream(MagicMock(), **_KWARGS)
+
+        assert manager is inner
+        assert not isinstance(manager, _GatedMessageStreamManager)
+
+    def test_scope_resets_on_exit(self) -> None:
+        assert in_chat_model() is False
+
+        with chat_model_scope():
+            assert in_chat_model() is True
+
+        assert in_chat_model() is False
+
+    def test_scope_resets_on_exception(self) -> None:
+        with pytest.raises(RuntimeError), chat_model_scope():
+            raise RuntimeError("boom")
+
+        assert in_chat_model() is False
