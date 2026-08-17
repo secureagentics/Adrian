@@ -172,6 +172,7 @@ function instrumentResponses(responses: unknown, options: AdrianOptions): unknow
 /** Aggregate Chat Completions stream chunks into one paired LLM event at the end. */
 function captureChatCompletionStream(model: string, messages: ReturnType<typeof normalizeMessages>, metadata: CallbackMetadata | null, stream: AsyncIterable<unknown>): AsyncIterable<unknown> {
   let output = "";
+  let reasoning = "";
   let usage: LlmEndData["usage"] = null;
   // OpenAI streams tool calls by index; merge partial deltas before emit.
   const toolCallParts = new Map<number, { id: string; name: string; args: string }>();
@@ -182,6 +183,9 @@ function captureChatCompletionStream(model: string, messages: ReturnType<typeof 
     for (const choice of (obj.choices as any[] ?? [])) {
       const delta = choice.delta;
       output += stringifyContent(delta?.content);
+      // OpenAI-compatible servers stream a reasoning model's chain of
+      // thought here; OpenAI itself never sets it.
+      if (typeof delta?.reasoning_content === "string") reasoning += delta.reasoning_content;
 
       for (const call of (delta?.tool_calls ?? [])) {
         const fn = call.function;
@@ -193,13 +197,17 @@ function captureChatCompletionStream(model: string, messages: ReturnType<typeof 
         });
       }
     }
-  }, () => emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage), gateLlmEndData);
+  }, () => ({ ...emptyLlmEnd(output, [...toolCallParts.values()].map((call) => ({ id: call.id, name: call.name, args: parseToolArgs(call.args) })), usage), reasoning }), gateLlmEndData);
 }
 
 /** Aggregate Responses API stream events into one paired LLM event at the end. */
 function captureResponseStream(model: string, messages: ReturnType<typeof normalizeMessages>, metadata: CallbackMetadata | null, stream: AsyncIterable<unknown>): AsyncIterable<unknown> {
   let output = "";
   let usage: LlmEndData["usage"] = null;
+  // Reasoning summaries stream as their own delta events, one run per
+  // summary part; parts are joined in the order they complete.
+  const reasoningParts: string[] = [];
+  let reasoningCurrent = "";
 
   const toolCallParts = new Map<string, { id: string; name: string; args: string }>();
 
@@ -214,22 +222,40 @@ function captureResponseStream(model: string, messages: ReturnType<typeof normal
           output += obj.delta;
           break;
 
+        case "response.reasoning_summary_text.delta":
+          reasoningCurrent += typeof obj.delta === "string" ? obj.delta : "";
+          break;
+
+        case "response.reasoning_summary_part.done":
+        case "response.reasoning_summary_text.done":
+          if (reasoningCurrent.length > 0) {
+            reasoningParts.push(reasoningCurrent);
+            reasoningCurrent = "";
+          }
+          break;
+
         case "response.completed":
           usage = normalizeUsage(obj.usage) ?? usage;
           break;
       }
       collectResponseStreamToolCall(obj, toolCallParts);
     },
-    () =>
-      emptyLlmEnd(
-        output,
-        [...toolCallParts.values()].map((call) => ({
-          id: call.id,
-          name: call.name,
-          args: parseToolArgs(call.args),
-        })),
-        usage,
-      ),
+    () => {
+      // A stream cut off mid-part still reports what arrived.
+      const parts = reasoningCurrent.length > 0 ? [...reasoningParts, reasoningCurrent] : reasoningParts;
+      return {
+        ...emptyLlmEnd(
+          output,
+          [...toolCallParts.values()].map((call) => ({
+            id: call.id,
+            name: call.name,
+            args: parseToolArgs(call.args),
+          })),
+          usage,
+        ),
+        reasoning: parts.join("\n\n"),
+      };
+    },
     gateLlmEndData,
   );
 }
@@ -241,11 +267,25 @@ function extractChatCompletion(result: unknown): LlmEndData {
   const message = (obj.choices as Record<string, unknown>[])[0]
     ?.message as Record<string, unknown> | undefined;
 
-  return emptyLlmEnd(
-    stringifyContent(message?.content),
-    normalizeOpenAIToolCalls(message?.tool_calls),
-    normalizeUsage(obj.usage),
-  );
+  return {
+    ...emptyLlmEnd(
+      stringifyContent(message?.content),
+      normalizeOpenAIToolCalls(message?.tool_calls),
+      normalizeUsage(obj.usage),
+    ),
+    // OpenAI itself never sets these on Chat Completions, but
+    // OpenAI-compatible servers (llama.cpp, vLLM) return a reasoning
+    // model's chain of thought here.
+    reasoning: firstString(message?.reasoning_content, message?.reasoning),
+  };
+}
+
+/** First non-empty string among the candidates, else "". */
+function firstString(...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length > 0) return candidate;
+  }
+  return "";
 }
 
 /** Map a completed Responses API object into Adrian LLM end data. */
@@ -253,11 +293,42 @@ function extractResponse(result: unknown): LlmEndData {
   if (isAsyncIterable(result)) return emptyLlmEnd();
   const obj = result as Record<string, unknown>;
 
-  return emptyLlmEnd(
-    typeof obj.output_text === "string" ? obj.output_text : stringifyContent(obj.output),
-    normalizeResponseToolCalls(obj.output),
-    normalizeUsage(obj.usage),
-  );
+  return {
+    ...emptyLlmEnd(
+      typeof obj.output_text === "string" ? obj.output_text : stringifyContent(obj.output),
+      normalizeResponseToolCalls(obj.output),
+      normalizeUsage(obj.usage),
+    ),
+    reasoning: extractResponseReasoning(obj.output),
+  };
+}
+
+/**
+ * Collect reasoning summary text from Responses API output items.
+ *
+ * Reasoning items sit alongside the message items in `output` and carry a
+ * `summary` array of `{ type: "summary_text", text }`. `encrypted_content`
+ * is skipped: it is an opaque blob for multi-turn reuse, not readable text.
+ * The summary is empty unless the caller asked for one via
+ * `reasoning: { summary: "auto" }`, and OpenAI gates it on org verification
+ * for the o-series.
+ */
+function extractResponseReasoning(output: unknown): string {
+  if (!Array.isArray(output)) return "";
+  const parts: string[] = [];
+  for (const item of output as Record<string, unknown>[]) {
+    if (!item || item.type !== "reasoning") continue;
+    const summary = item.summary;
+    if (Array.isArray(summary)) {
+      for (const entry of summary as Record<string, unknown>[]) {
+        if (typeof entry?.text === "string" && entry.text.length > 0) parts.push(entry.text);
+      }
+    }
+    // output_version-style single string, and the shape self-hosted
+    // servers emit when they expose reasoning without a summary list.
+    if (typeof item.reasoning === "string" && item.reasoning.length > 0) parts.push(item.reasoning);
+  }
+  return parts.join("\n\n");
 }
 
 /** Normalise Chat Completions `message.tool_calls` into Adrian tool call records. */

@@ -19,7 +19,7 @@ it("encodes login and paired event frames", () => {
     pairType: "llm",
     agent: { agentId: "agent", systemPrompt: "", userInstruction: "" },
     parent: null,
-    data: { kind: "llm", model: "ChatOpenAI", messages: [], output: "ok", toolCalls: [], usage: null },
+    data: { kind: "llm", model: "ChatOpenAI", messages: [], output: "ok", toolCalls: [], usage: null, reasoning: "" },
     metadata: null,
   };
   const batch = encodeClientFrame({ pairedBatch: { events: [event] } });

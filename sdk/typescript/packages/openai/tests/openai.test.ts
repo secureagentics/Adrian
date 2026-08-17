@@ -614,3 +614,126 @@ describe("OpenAI instrumentation", () => {
     expect(events[0]).toMatchObject({ model: "gpt-4o", output: "hello" });
   });
 });
+
+describe("OpenAI reasoning capture", () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await adrian.shutdown();
+  });
+
+  async function capture(client: unknown, call: (c: any) => Promise<unknown>): Promise<EventData[]> {
+    const events: EventData[] = [];
+    await adrian.init({ handlers: [], sessionId: "sess", wsUrl: null, onEvent: (_t, d) => { events.push(d); } });
+    await call(client);
+    return events;
+  }
+
+  it("collects reasoning summary text from a Responses API call", async () => {
+    const client = adrian.openai({
+      responses: {
+        create: async () => ({
+          output_text: "391",
+          output: [
+            {
+              type: "reasoning",
+              id: "rs_1",
+              summary: [
+                { type: "summary_text", text: "First step." },
+                { type: "summary_text", text: "Second step." },
+              ],
+              encrypted_content: "gAAAA...",
+            },
+            { type: "message", content: [{ type: "output_text", text: "391" }] },
+          ],
+        }),
+      },
+    });
+
+    const events = await capture(client, (c) => c.responses.create({ model: "gpt-5", input: "17*23?" }));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "llm", output: "391", reasoning: "First step.\n\nSecond step." });
+  });
+
+  it("leaves reasoning empty when only encrypted content is returned", async () => {
+    // o4-mini on an unverified org: reasoning item present, summary empty.
+    const client = adrian.openai({
+      responses: {
+        create: async () => ({
+          output_text: "391",
+          output: [{ type: "reasoning", id: "rs_1", summary: [], content: [], encrypted_content: "gAAAA..." }],
+        }),
+      },
+    });
+
+    const events = await capture(client, (c) => c.responses.create({ model: "o4-mini", input: "17*23?" }));
+
+    expect(events[0]).toMatchObject({ reasoning: "", output: "391" });
+  });
+
+  it("reads reasoning_content from an OpenAI-compatible Chat Completions server", async () => {
+    const client = adrian.openai({
+      chat: {
+        completions: {
+          create: async () => ({
+            choices: [{ message: { content: "391", reasoning_content: "17*20 + 17*3." } }],
+          }),
+        },
+      },
+    });
+
+    const events = await capture(client, (c) => c.chat.completions.create({ model: "gpt-oss-20b", messages: [{ role: "user", content: "17*23?" }] }));
+
+    expect(events[0]).toMatchObject({ output: "391", reasoning: "17*20 + 17*3." });
+  });
+
+  it("has no reasoning for a plain Chat Completions response", async () => {
+    const client = adrian.openai({
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: "391" } }] }) } },
+    });
+
+    const events = await capture(client, (c) => c.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "17*23?" }] }));
+
+    expect(events[0]).toMatchObject({ output: "391", reasoning: "" });
+  });
+
+  it("accumulates streamed reasoning summary deltas", async () => {
+    const client = adrian.openai({
+      responses: {
+        create: async () => mockOpenAIStream([
+          { type: "response.reasoning_summary_text.delta", delta: "First " },
+          { type: "response.reasoning_summary_text.delta", delta: "step." },
+          { type: "response.reasoning_summary_part.done" },
+          { type: "response.reasoning_summary_text.delta", delta: "Second step." },
+          { type: "response.reasoning_summary_part.done" },
+          { type: "response.output_text.delta", delta: "391" },
+          { type: "response.completed", usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } },
+        ]),
+      },
+    });
+
+    const events = await capture(client, async (c) => {
+      const stream = await c.responses.create({ model: "gpt-5", input: "17*23?", stream: true });
+      for await (const _ of stream as StreamLike<unknown>) { /* drain */ }
+    });
+
+    expect(events[0]).toMatchObject({ output: "391", reasoning: "First step.\n\nSecond step." });
+  });
+
+  it("keeps reasoning that arrived before a stream was cut off", async () => {
+    const client = adrian.openai({
+      responses: {
+        create: async () => mockOpenAIStream([
+          { type: "response.reasoning_summary_text.delta", delta: "Partial thought" },
+        ]),
+      },
+    });
+
+    const events = await capture(client, async (c) => {
+      const stream = await c.responses.create({ model: "gpt-5", input: "17*23?", stream: true });
+      for await (const _ of stream as StreamLike<unknown>) { /* drain */ }
+    });
+
+    expect(events[0]).toMatchObject({ reasoning: "Partial thought" });
+  });
+});

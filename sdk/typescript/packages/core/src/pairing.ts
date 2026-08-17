@@ -80,6 +80,7 @@ export class EventPairBuffer {
         output: endData.output ?? "",
         toolCalls: endData.toolCalls ?? [],
         usage: endData.usage ?? null,
+        reasoning: endData.reasoning ?? "",
         error: endData.error,
       },
       metadata: start.metadata,

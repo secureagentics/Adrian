@@ -113,6 +113,7 @@ export function pairedEventToProto(event: PairedEvent): Record<string, unknown> 
       model: event.data.model,
       messages: event.data.messages,
       output: event.data.output,
+      reasoning: event.data.reasoning,
       tool_calls: event.data.toolCalls.map((call) => ({ name: call.name, args: JSON.stringify(call.args), id: call.id })),
       usage: event.data.usage ? {
         prompt_tokens: event.data.usage.promptTokens,

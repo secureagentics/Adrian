@@ -49,6 +49,8 @@ export interface LlmEndData {
   output: string;
   toolCalls: ToolCallRecord[];
   usage: TokenUsage | null;
+  /** The model's reasoning, where the provider exposes it. */
+  reasoning?: string;
   error?: ErrorData;
 }
 

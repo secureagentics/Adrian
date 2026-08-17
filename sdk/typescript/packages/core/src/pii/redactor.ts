@@ -23,6 +23,7 @@ export class PiiRedactor {
     if (target.data.kind === "llm") {
       for (const message of target.data.messages) message.content = this.redactString(message.content);
       target.data.output = this.redactString(target.data.output);
+      target.data.reasoning = this.redactString(target.data.reasoning);
       for (const call of target.data.toolCalls) call.args = this.redactValue(call.args) as typeof call.args;
     } else {
       target.data.input = this.redactString(target.data.input);
@@ -51,7 +52,7 @@ export class PiiRedactor {
     const texts = [event.agent.systemPrompt, event.agent.userInstruction];
     if (event.parent) texts.push(event.parent.systemPrompt, event.parent.userInstruction);
     if (event.data.kind === "llm") {
-      texts.push(...event.data.messages.map((msg) => msg.content), event.data.output);
+      texts.push(...event.data.messages.map((msg) => msg.content), event.data.output, event.data.reasoning);
       for (const call of event.data.toolCalls) collectStrings(call.args, texts);
     } else {
       texts.push(event.data.input, event.data.output);

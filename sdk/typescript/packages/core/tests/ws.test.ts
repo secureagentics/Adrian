@@ -126,7 +126,7 @@ function llmEvent(eventId: string): PairedEvent {
     pairType: "llm",
     agent: { agentId: "agent", systemPrompt: "", userInstruction: "" },
     parent: null,
-    data: { kind: "llm", model: "ChatOpenAI", messages: [], output: "", toolCalls: [{ id: "tool-1", name: "search", args: {} }], usage: null },
+    data: { kind: "llm", model: "ChatOpenAI", messages: [], output: "", toolCalls: [{ id: "tool-1", name: "search", args: {} }], usage: null, reasoning: "" },
     metadata: null,
   };
 }

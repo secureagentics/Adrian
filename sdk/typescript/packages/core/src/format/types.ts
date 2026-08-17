@@ -22,6 +22,8 @@ export interface LlmPairData {
   output: string;
   toolCalls: ToolCallRecord[];
   usage: TokenUsage | null;
+  /** The model's reasoning / chain of thought. */
+  reasoning: string;
   error?: ErrorData;
 }
 
