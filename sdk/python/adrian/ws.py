@@ -732,7 +732,9 @@ class WebSocketClient:
         """
         self._mode = ack.policy.mode
         self._policy = ack.policy
-        self._blocked_mcp_servers = set(ack.blocked_mcp_servers)
+        self._blocked_mcp_servers = set(
+            ack.blocked_mcp_servers if hasattr(ack, "blocked_mcp_servers") else []
+        )
         self._login_ack_received.set()
         logger.info(
             "LoginAck received: mode=%s policy_m0=%s policy_m2=%s "
