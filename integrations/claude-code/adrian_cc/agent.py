@@ -57,6 +57,7 @@ try:
 except ImportError:  # pragma: no cover - POSIX
     msvcrt = None
 
+from adrian_cc.pii import redact_event
 from adrian_cc.proto import event_pb2 as pb
 from adrian_cc.transcript import (
     get_invocation_id,
@@ -616,6 +617,12 @@ async def _ws_send_event(
     event.connection_id = connection_id
 
     try:
+        # Single egress choke point for PII: every hook reaches the backend
+        # through here, so redacting once covers all event types. Inside the
+        # try so a redaction failure surfaces as result["error"] and the
+        # event is never sent unredacted.
+        redact_event(event)
+
         async with websockets.connect(
             ADRIAN_WS_URL,
             additional_headers=headers,

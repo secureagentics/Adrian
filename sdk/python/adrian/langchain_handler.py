@@ -40,7 +40,7 @@ from langchain_core.runnables.base import Runnable
 from langchain_core.runnables.config import ensure_config
 
 from adrian.context import get_invocation_id, set_invocation_id
-from adrian.proto import event_pb2 as pb
+from adrian.ws import should_halt
 
 if TYPE_CHECKING:
     from adrian.config import AdrianConfig
@@ -437,23 +437,6 @@ def _extract_tool_calls(  # pyright: ignore[reportUnusedFunction]
     return []
 
 
-def _should_halt(verdict: pb.Verdict) -> bool:
-    """Decide whether a verdict should halt tool execution.
-
-    HITL resolutions override per-MAD policy when present.
-    """
-    if verdict.HasField("hitl"):
-        return not verdict.hitl.continue_execution
-
-    mad_prefix = verdict.mad_code[:2]
-    return {
-        "M0": verdict.policy.policy_m0,
-        "M2": verdict.policy.policy_m2,
-        "M3": verdict.policy.policy_m3,
-        "M4": verdict.policy.policy_m4,
-    }.get(mad_prefix, False)
-
-
 def _patch_tool_node() -> None:
     """Patch ToolNode for callback injection + async verdict gate.
 
@@ -592,7 +575,7 @@ def _patch_base_tool() -> None:
             )
             return True
 
-        if _should_halt(verdict):
+        if should_halt(verdict):
             logger.warning(
                 "halting tool execution for event_id=%s mad_code=%s",
                 verdict.event_id,
@@ -787,7 +770,7 @@ def _patch_agent_executor() -> None:
                         return AgentStep(
                             action=agent_action, observation=_BLOCKED_CONTENT
                         )
-                    if _should_halt(verdict):
+                    if should_halt(verdict):
                         logger.warning(
                             "halting tool execution for event_id=%s mad_code=%s",
                             verdict.event_id,
