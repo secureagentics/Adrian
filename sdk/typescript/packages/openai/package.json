@@ -1,6 +1,6 @@
 {
   "name": "@secureagentics/adrian-openai",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "OpenAI SDK instrumentation for Adrian security monitoring.",
   "license": "Apache-2.0",
   "author": "Secure Agentics <support@secureagentics.ai>",
@@ -48,7 +48,7 @@
     "monitoring"
   ],
   "dependencies": {
-    "@secureagentics/adrian": "^1.0.0"
+    "@secureagentics/adrian": "^1.1.0"
   },
   "peerDependencies": {
     "openai": ">=4.0.0"

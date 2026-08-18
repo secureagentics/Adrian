@@ -1,6 +1,6 @@
 {
   "name": "@secureagentics/adrian",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Core SDK for Adrian multi-agent security monitoring in Node.js.",
   "license": "Apache-2.0",
   "author": "Secure Agentics <support@secureagentics.ai>",
