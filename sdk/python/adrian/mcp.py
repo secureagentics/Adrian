@@ -193,7 +193,9 @@ def _npm_version(pkg: str) -> str:
     try:
         result = subprocess.run(
             ["npm", "view", pkg, "version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -207,7 +209,9 @@ def _pip_version(pkg: str) -> str:
     try:
         result = subprocess.run(
             ["pip", "show", pkg],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():

@@ -17,12 +17,10 @@ Covers scenarios the happy-path tests miss:
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
-import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import adrian
 import pytest
@@ -30,7 +28,6 @@ from adrian.proto import event_pb2 as pb
 from adrian.ws import WebSocketClient
 from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig, ensure_config
-from langchain_core.tools import BaseTool
 from langgraph._internal._constants import CONF, CONFIG_KEY_RUNTIME
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
@@ -81,7 +78,9 @@ def _init_sdk(tmp_path: Path, block_timeout: float = 2.0) -> WebSocketClient:
     return ws
 
 
-def _tool_state(tc_id: str, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+def _tool_state(
+    tc_id: str, tool_name: str, args: dict[str, Any] | None = None
+) -> dict[str, Any]:
     ai = AIMessage(
         content="",
         tool_calls=[{"id": tc_id, "name": tool_name, "args": args or {"x": "hi"}}],
@@ -173,14 +172,14 @@ class TestWsLoopEdgeCases:
             return x
 
         ws = _init_sdk(tmp_path, block_timeout=0.1)
-        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
         ws._connected.set()
         # Intentionally NOT setting ws._loop — simulates WS not connected
         ws._loop = None
         ws._tool_call_id_to_event_id["tc-noloop"] = "llm-noloop"
 
         tool_node = ToolNode([my_tool])
-        result = await tool_node.ainvoke(
+        await tool_node.ainvoke(
             _tool_state("tc-noloop", "my_tool"), config=_runtime_config()
         )
 
@@ -217,7 +216,7 @@ class TestWsLoopEdgeCases:
         ws._tool_call_id_to_event_id["tc-stopped"] = "llm-stopped"
 
         tool_node = ToolNode([my_tool])
-        result = await tool_node.ainvoke(
+        await tool_node.ainvoke(
             _tool_state("tc-stopped", "my_tool"), config=_runtime_config()
         )
 
@@ -232,7 +231,9 @@ class TestWsLoopEdgeCases:
 
 
 class TestDisconnectRace:
-    async def test_ws_client_nulled_between_check_and_gate(self, tmp_path: Path) -> None:
+    async def test_ws_client_nulled_between_check_and_gate(
+        self, tmp_path: Path
+    ) -> None:
         """If _ws_client is set to None after _sync_gate captures it but
         before the gate completes, it should not crash. The local `ws`
         reference in _sync_gate protects against this."""
@@ -289,9 +290,10 @@ class TestMissingToolCallId:
         ws._connected.set()
 
         from langchain_core.tools import StructuredTool
+
         tool = StructuredTool.from_function(my_tool)
         # Plain dict input — not a ToolCall, no "type": "tool_call"
-        result = tool.invoke({"x": "hello"})
+        tool.invoke({"x": "hello"})
 
         assert tool_ran
 
@@ -302,7 +304,9 @@ class TestMissingToolCallId:
 
 
 class TestConcurrentGateAccess:
-    async def test_parallel_tool_calls_each_get_own_verdict(self, tmp_path: Path) -> None:
+    async def test_parallel_tool_calls_each_get_own_verdict(
+        self, tmp_path: Path
+    ) -> None:
         """Two parallel tool calls with different tool_call_ids must each
         wait for their own verdict independently."""
         results: dict[str, bool] = {}
@@ -327,10 +331,14 @@ class TestConcurrentGateAccess:
         ws._tool_call_id_to_event_id["tc-b"] = "llm-b"
 
         fut_a = ws.register_pending("llm-a")
-        fut_a.set_result(pb.Verdict(event_id="llm-a", mad_code="M4_exfil", policy=policy))
+        fut_a.set_result(
+            pb.Verdict(event_id="llm-a", mad_code="M4_exfil", policy=policy)
+        )
 
         fut_b = ws.register_pending("llm-b")
-        fut_b.set_result(pb.Verdict(event_id="llm-b", mad_code="M0_benign", policy=policy))
+        fut_b.set_result(
+            pb.Verdict(event_id="llm-b", mad_code="M0_benign", policy=policy)
+        )
 
         # Dispatch tool_a (should block)
         tool_node_a = ToolNode([tool_a])
@@ -340,7 +348,7 @@ class TestConcurrentGateAccess:
 
         # Dispatch tool_b (should allow)
         tool_node_b = ToolNode([tool_b])
-        result_b = await tool_node_b.ainvoke(
+        await tool_node_b.ainvoke(
             _tool_state("tc-b", "tool_b"), config=_runtime_config()
         )
 
@@ -381,7 +389,9 @@ class TestHitlModeHold:
 
         # Wait well past block_timeout (0.2s) — tool should still be held
         await asyncio.sleep(0.5)
-        assert not task.done(), "HITL must hold indefinitely, not fail-open after block_timeout"
+        assert not task.done(), (
+            "HITL must hold indefinitely, not fail-open after block_timeout"
+        )
         assert not tool_ran
 
         # Human approves
@@ -469,7 +479,9 @@ class TestVerdictReplay:
 
 
 class TestLruEviction:
-    async def test_unknown_tool_call_id_verdict_timeout_blocks(self, tmp_path: Path) -> None:
+    async def test_unknown_tool_call_id_verdict_timeout_blocks(
+        self, tmp_path: Path
+    ) -> None:
         """A tool_call_id not in the map → wait_for_tool_call_verdict returns
         None → _async_gate treats None verdict as fail-closed → BLOCKED.
 
@@ -574,7 +586,9 @@ class TestAsyncToolGate:
 
 
 class TestMultiToolCall:
-    async def test_two_tools_same_llm_one_blocked_one_allowed(self, tmp_path: Path) -> None:
+    async def test_two_tools_same_llm_one_blocked_one_allowed(
+        self, tmp_path: Path
+    ) -> None:
         """An LLM emits two tool_calls. One is M4 (blocked), the other
         is M0 (allowed). Each should be independently gated."""
         results: dict[str, bool] = {}
@@ -598,10 +612,14 @@ class TestMultiToolCall:
         ws._tool_call_id_to_event_id["tc-delete"] = "llm-delete"
 
         fut_read = ws.register_pending("llm-read")
-        fut_read.set_result(pb.Verdict(event_id="llm-read", mad_code="M0_ok", policy=policy))
+        fut_read.set_result(
+            pb.Verdict(event_id="llm-read", mad_code="M0_ok", policy=policy)
+        )
 
         fut_delete = ws.register_pending("llm-delete")
-        fut_delete.set_result(pb.Verdict(event_id="llm-delete", mad_code="M4_a", policy=policy))
+        fut_delete.set_result(
+            pb.Verdict(event_id="llm-delete", mad_code="M4_a", policy=policy)
+        )
 
         # Dispatch read (allowed)
         tn_read = ToolNode([read_file])
@@ -650,8 +668,7 @@ class TestGetRunningLoopOnThread:
         has_running, gel_raises = await loop.run_in_executor(None, check)
 
         assert not has_running, "Worker thread should NOT have a running loop"
-        import sys
-        if sys.version_info >= (3, 12):
-            assert gel_raises, (
-                "On Python 3.12+, get_event_loop() should raise on worker thread"
-            )
+
+        assert gel_raises, (
+            "On Python 3.12+, get_event_loop() should raise on worker thread"
+        )

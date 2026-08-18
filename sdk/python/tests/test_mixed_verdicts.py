@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import adrian
 import pytest
@@ -105,21 +105,21 @@ class TestMixedBenignMaliciousToolCalls:
 
         # M0 — benign, policy_m0 is False so NOT in scope → allow
         fut_read = ws.register_pending("llm-read")
-        fut_read.set_result(pb.Verdict(
-            event_id="llm-read", mad_code="M0_benign", policy=policy
-        ))
+        fut_read.set_result(
+            pb.Verdict(event_id="llm-read", mad_code="M0_benign", policy=policy)
+        )
 
         # M2 — policy_m2 is False so NOT in scope → allow
         fut_search = ws.register_pending("llm-search")
-        fut_search.set_result(pb.Verdict(
-            event_id="llm-search", mad_code="M2_misuse", policy=policy
-        ))
+        fut_search.set_result(
+            pb.Verdict(event_id="llm-search", mad_code="M2_misuse", policy=policy)
+        )
 
         # M4 — policy_m4 is True so IN scope → BLOCK
         fut_delete = ws.register_pending("llm-delete")
-        fut_delete.set_result(pb.Verdict(
-            event_id="llm-delete", mad_code="M4_exfiltration", policy=policy
-        ))
+        fut_delete.set_result(
+            pb.Verdict(event_id="llm-delete", mad_code="M4_exfiltration", policy=policy)
+        )
 
         # Dispatch each tool independently (as ToolNode does)
         for tc_id, tool_name, tool_fn, args_key, args_val in [
@@ -129,7 +129,9 @@ class TestMixedBenignMaliciousToolCalls:
         ]:
             ai = AIMessage(
                 content="",
-                tool_calls=[{"id": tc_id, "name": tool_name, "args": {args_key: args_val}}],
+                tool_calls=[
+                    {"id": tc_id, "name": tool_name, "args": {args_key: args_val}}
+                ],
             )
             tn = ToolNode([tool_fn])
             await tn.ainvoke({"messages": [ai]}, config=_runtime_config())
@@ -167,11 +169,21 @@ class TestMixedBenignMaliciousToolCalls:
         for tc_id, evt_id in [("tc-a", "llm-a"), ("tc-b", "llm-b"), ("tc-c", "llm-c")]:
             ws._tool_call_id_to_event_id[tc_id] = evt_id
             fut = ws.register_pending(evt_id)
-            fut.set_result(pb.Verdict(event_id=evt_id, mad_code="M4_attack", policy=policy))
+            fut.set_result(
+                pb.Verdict(event_id=evt_id, mad_code="M4_attack", policy=policy)
+            )
 
-        for tc_id, name, fn in [("tc-a", "tool_a", tool_a), ("tc-b", "tool_b", tool_b), ("tc-c", "tool_c", tool_c)]:
-            ai = AIMessage(content="", tool_calls=[{"id": tc_id, "name": name, "args": {"x": "y"}}])
-            result = await ToolNode([fn]).ainvoke({"messages": [ai]}, config=_runtime_config())
+        for tc_id, name, fn in [
+            ("tc-a", "tool_a", tool_a),
+            ("tc-b", "tool_b", tool_b),
+            ("tc-c", "tool_c", tool_c),
+        ]:
+            ai = AIMessage(
+                content="", tool_calls=[{"id": tc_id, "name": name, "args": {"x": "y"}}]
+            )
+            result = await ToolNode([fn]).ainvoke(
+                {"messages": [ai]}, config=_runtime_config()
+            )
             assert "BLOCKED" in result["messages"][0].content
 
         assert not executed
@@ -201,7 +213,9 @@ class TestMixedBenignMaliciousToolCalls:
             fut.set_result(pb.Verdict(event_id=evt_id, mad_code="M0_ok", policy=policy))
 
         for tc_id, name, fn in [("tc-a", "tool_a", tool_a), ("tc-b", "tool_b", tool_b)]:
-            ai = AIMessage(content="", tool_calls=[{"id": tc_id, "name": name, "args": {"x": "y"}}])
+            ai = AIMessage(
+                content="", tool_calls=[{"id": tc_id, "name": name, "args": {"x": "y"}}]
+            )
             await ToolNode([fn]).ainvoke({"messages": [ai]}, config=_runtime_config())
 
         assert executed == {"a": True, "b": True}
@@ -229,23 +243,41 @@ class TestMixedBenignMaliciousToolCalls:
         ws._tool_call_id_to_event_id["tc-suspicious"] = "llm-suspicious"
 
         fut_b = ws.register_pending("llm-benign")
-        fut_b.set_result(pb.Verdict(event_id="llm-benign", mad_code="M0_ok", policy=policy))
+        fut_b.set_result(
+            pb.Verdict(event_id="llm-benign", mad_code="M0_ok", policy=policy)
+        )
 
         fut_s = ws.register_pending("llm-suspicious")
-        fut_s.set_result(pb.Verdict(event_id="llm-suspicious", mad_code="M2_misuse", policy=policy))
+        fut_s.set_result(
+            pb.Verdict(event_id="llm-suspicious", mad_code="M2_misuse", policy=policy)
+        )
 
         # Benign runs
-        ai_b = AIMessage(content="", tool_calls=[{"id": "tc-benign", "name": "benign_tool", "args": {"x": "y"}}])
-        await ToolNode([benign_tool]).ainvoke({"messages": [ai_b]}, config=_runtime_config())
+        ai_b = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-benign", "name": "benign_tool", "args": {"x": "y"}}],
+        )
+        await ToolNode([benign_tool]).ainvoke(
+            {"messages": [ai_b]}, config=_runtime_config()
+        )
         assert executed.get("benign") is True
 
         # Suspicious blocked
-        ai_s = AIMessage(content="", tool_calls=[{"id": "tc-suspicious", "name": "suspicious_tool", "args": {"x": "y"}}])
-        result = await ToolNode([suspicious_tool]).ainvoke({"messages": [ai_s]}, config=_runtime_config())
+        ai_s = AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "tc-suspicious", "name": "suspicious_tool", "args": {"x": "y"}}
+            ],
+        )
+        result = await ToolNode([suspicious_tool]).ainvoke(
+            {"messages": [ai_s]}, config=_runtime_config()
+        )
         assert "suspicious" not in executed
         assert "BLOCKED" in result["messages"][0].content
 
-    async def test_sync_tools_mixed_verdicts_from_worker_thread(self, tmp_path: Path) -> None:
+    async def test_sync_tools_mixed_verdicts_from_worker_thread(
+        self, tmp_path: Path
+    ) -> None:
         """Same as test_three_tools but with SYNC tools (worker thread path).
         This is the exact scenario from run 019eda10."""
         executed: dict[str, str] = {}
@@ -276,25 +308,56 @@ class TestMixedBenignMaliciousToolCalls:
 
         # M0 — allowed
         fut1 = ws.register_pending("llm-sread")
-        fut1.set_result(pb.Verdict(event_id="llm-sread", mad_code="M0_ok", policy=policy))
+        fut1.set_result(
+            pb.Verdict(event_id="llm-sread", mad_code="M0_ok", policy=policy)
+        )
         # M4 — blocked
         fut2 = ws.register_pending("llm-dwrite")
-        fut2.set_result(pb.Verdict(event_id="llm-dwrite", mad_code="M4_data_exfil", policy=policy))
+        fut2.set_result(
+            pb.Verdict(event_id="llm-dwrite", mad_code="M4_data_exfil", policy=policy)
+        )
         # M0 — allowed
         fut3 = ws.register_pending("llm-slist")
-        fut3.set_result(pb.Verdict(event_id="llm-slist", mad_code="M0_ok", policy=policy))
+        fut3.set_result(
+            pb.Verdict(event_id="llm-slist", mad_code="M0_ok", policy=policy)
+        )
 
         # safe_read (M0) → should run
-        ai1 = AIMessage(content="", tool_calls=[{"id": "tc-sread", "name": "safe_read", "args": {"path": "/tmp/ok"}}])
-        await ToolNode([safe_read]).ainvoke({"messages": [ai1]}, config=_runtime_config())
+        ai1 = AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "tc-sread", "name": "safe_read", "args": {"path": "/tmp/ok"}}
+            ],
+        )
+        await ToolNode([safe_read]).ainvoke(
+            {"messages": [ai1]}, config=_runtime_config()
+        )
 
         # dangerous_write (M4) → should block
-        ai2 = AIMessage(content="", tool_calls=[{"id": "tc-dwrite", "name": "dangerous_write", "args": {"path": "/etc/shadow"}}])
-        result2 = await ToolNode([dangerous_write]).ainvoke({"messages": [ai2]}, config=_runtime_config())
+        ai2 = AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "id": "tc-dwrite",
+                    "name": "dangerous_write",
+                    "args": {"path": "/etc/shadow"},
+                }
+            ],
+        )
+        result2 = await ToolNode([dangerous_write]).ainvoke(
+            {"messages": [ai2]}, config=_runtime_config()
+        )
 
         # safe_list (M0) → should run
-        ai3 = AIMessage(content="", tool_calls=[{"id": "tc-slist", "name": "safe_list", "args": {"directory": "/home"}}])
-        await ToolNode([safe_list]).ainvoke({"messages": [ai3]}, config=_runtime_config())
+        ai3 = AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "tc-slist", "name": "safe_list", "args": {"directory": "/home"}}
+            ],
+        )
+        await ToolNode([safe_list]).ainvoke(
+            {"messages": [ai3]}, config=_runtime_config()
+        )
 
         assert executed.get("safe_read") == "/tmp/ok", "M0 safe_read should have run"
         assert "dangerous_write" not in executed, "M4 dangerous_write should be BLOCKED"
@@ -334,12 +397,22 @@ class TestMixedBenignMaliciousToolCalls:
         fut_bad.set_result(v_bad)
 
         # Benign runs
-        ai_good = AIMessage(content="", tool_calls=[{"id": "tc-good", "name": "benign_tool", "args": {"x": "y"}}])
-        await ToolNode([benign_tool]).ainvoke({"messages": [ai_good]}, config=_runtime_config())
+        ai_good = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-good", "name": "benign_tool", "args": {"x": "y"}}],
+        )
+        await ToolNode([benign_tool]).ainvoke(
+            {"messages": [ai_good]}, config=_runtime_config()
+        )
         assert executed.get("benign") is True
 
         # Malicious blocked
-        ai_bad = AIMessage(content="", tool_calls=[{"id": "tc-bad", "name": "malicious_tool", "args": {"x": "y"}}])
-        result = await ToolNode([malicious_tool]).ainvoke({"messages": [ai_bad]}, config=_runtime_config())
+        ai_bad = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-bad", "name": "malicious_tool", "args": {"x": "y"}}],
+        )
+        result = await ToolNode([malicious_tool]).ainvoke(
+            {"messages": [ai_bad]}, config=_runtime_config()
+        )
         assert "malicious" not in executed
         assert "BLOCKED" in result["messages"][0].content

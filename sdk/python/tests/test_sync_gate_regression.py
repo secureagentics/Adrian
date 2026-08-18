@@ -109,7 +109,9 @@ class TestSyncGateWorkerThreadRegression:
         tool_node = ToolNode([dangerous_tool])
         ai = AIMessage(
             content="",
-            tool_calls=[{"id": "tc-m4", "name": "dangerous_tool", "args": {"x": "steal data"}}],
+            tool_calls=[
+                {"id": "tc-m4", "name": "dangerous_tool", "args": {"x": "steal data"}}
+            ],
         )
         state: dict[str, Any] = {"messages": [ai]}
 
@@ -145,9 +147,7 @@ class TestSyncGateWorkerThreadRegression:
         ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
 
         fut = ws.register_pending("llm-evt")
-        fut.set_result(
-            pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy)
-        )
+        fut.set_result(pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy))
 
         original_get_event_loop = asyncio.get_event_loop
         get_event_loop_called_from_worker = False
@@ -169,7 +169,9 @@ class TestSyncGateWorkerThreadRegression:
             tool_node = ToolNode([passthrough_tool])
             ai = AIMessage(
                 content="",
-                tool_calls=[{"id": "tc-1", "name": "passthrough_tool", "args": {"x": "hi"}}],
+                tool_calls=[
+                    {"id": "tc-1", "name": "passthrough_tool", "args": {"x": "hi"}}
+                ],
             )
             state: dict[str, Any] = {"messages": [ai]}
             await tool_node.ainvoke(state, config=_runtime_config())
@@ -214,7 +216,9 @@ class TestSyncGateWorkerThreadRegression:
         tool_node = ToolNode([safe_tool])
         ai = AIMessage(
             content="",
-            tool_calls=[{"id": "tc-benign", "name": "safe_tool", "args": {"x": "hello"}}],
+            tool_calls=[
+                {"id": "tc-benign", "name": "safe_tool", "args": {"x": "hello"}}
+            ],
         )
         state: dict[str, Any] = {"messages": [ai]}
         await tool_node.ainvoke(state, config=_runtime_config())
@@ -258,11 +262,11 @@ class TestOldBuggyGateWouldFail:
         # On Python 3.10-3.11, it may succeed (creating a new loop)
         # Either way, the fix handles both: it uses get_running_loop() instead
         import sys
-        if sys.version_info >= (3, 12):
-            assert result == "get_event_loop_raised", (
-                f"Expected get_event_loop() to raise on worker thread "
-                f"(Python {sys.version_info}), got: {result}"
-            )
+
+        assert result == "get_event_loop_raised", (
+            f"Expected get_event_loop() to raise on worker thread "
+            f"(Python {sys.version_info}), got: {result}"
+        )
         # On older Python, get_event_loop may succeed but the old code still
         # had the wrong behavior (would try run_until_complete on a non-running
         # loop that wasn't connected to ws._loop)

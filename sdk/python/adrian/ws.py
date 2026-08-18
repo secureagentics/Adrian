@@ -697,7 +697,9 @@ class WebSocketClient:
                 elif kind == "verdict":
                     await self._on_verdict_frame(frame.verdict)
                 elif kind == "mcp_block_update":
-                    self._blocked_mcp_servers = set(frame.mcp_block_update.blocked_mcp_servers)
+                    self._blocked_mcp_servers = set(
+                        frame.mcp_block_update.blocked_mcp_servers
+                    )
                     logger.info("MCP block list updated: %s", self._blocked_mcp_servers)
                 else:
                     logger.warning(
