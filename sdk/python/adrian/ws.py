@@ -257,6 +257,7 @@ class WebSocketClient:
         # verdict and how long.
         self._mode: int = pb.MODE_UNSPECIFIED
         self._policy: pb.PolicySnapshot | None = None
+        self._blocked_mcp_servers: set[str] = set()
         # Set the first time a ``ServerFrame{login_ack}`` is applied.
         # Used in two places:
         #   1. ``on_paired_event`` defensively pre-registers a
@@ -336,6 +337,10 @@ class WebSocketClient:
         self._next_reconnect_delay: float | None = None
 
     # -- Mode / policy state (populated by LoginAck) --
+
+    def is_mcp_blocked(self, server_name: str) -> bool:
+        """Check if an MCP server is blocked for this agent profile."""
+        return server_name in self._blocked_mcp_servers
 
     def policy_active(self) -> bool:
         """Whether the active server mode requires waiting on verdicts.
@@ -691,6 +696,11 @@ class WebSocketClient:
                     self._on_login_ack(frame.login_ack)
                 elif kind == "verdict":
                     await self._on_verdict_frame(frame.verdict)
+                elif kind == "mcp_block_update":
+                    self._blocked_mcp_servers = set(
+                        frame.mcp_block_update.blocked_mcp_servers
+                    )
+                    logger.info("MCP block list updated: %s", self._blocked_mcp_servers)
                 else:
                     logger.warning(
                         "ignoring unknown ServerFrame kind %r "
@@ -724,6 +734,9 @@ class WebSocketClient:
         """
         self._mode = ack.policy.mode
         self._policy = ack.policy
+        self._blocked_mcp_servers = set(
+            ack.blocked_mcp_servers if hasattr(ack, "blocked_mcp_servers") else []
+        )
         self._login_ack_received.set()
         logger.info(
             "LoginAck received: mode=%s policy_m0=%s policy_m2=%s "

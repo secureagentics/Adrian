@@ -269,3 +269,7 @@ class McpServer:
     name: str
     transport: str
     endpoint: str
+    version: str = ""
+    protocol_version: str = ""
+    server_info_name: str = ""
+    tools_json: str = ""

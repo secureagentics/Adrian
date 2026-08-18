@@ -472,6 +472,10 @@ async def _send_mcp_inventory() -> None:
         added.name = server.name
         added.transport = server.transport
         added.endpoint = server.endpoint
+        added.version = server.version
+        added.protocol_version = server.protocol_version
+        added.server_info_name = server.server_info_name
+        added.tools_json = server.tools_json
 
     await ws._send_frame(frame)  # pyright: ignore[reportPrivateUsage]
 

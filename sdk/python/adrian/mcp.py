@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import subprocess
 import sys
 from collections.abc import Mapping
 from typing import Any, cast
@@ -126,6 +127,101 @@ def _fire_on_mcp_server(server: McpServer) -> None:
     fire(config.on_mcp_server, server, name="on_mcp_server")
 
 
+def _resolve_version_from_connection(connection: Mapping[str, Any]) -> str:
+    """Try to resolve a version for an MCP server from its connection config.
+
+    Supports npx (npm view) and pip-installed (pip show) MCP servers.
+    """
+    transport = str(connection.get("transport") or "").lower()
+    if transport != "stdio":
+        return ""
+    command = str(connection.get("command", ""))
+    args = connection.get("args") or []
+    if not isinstance(args, (list, tuple)):
+        args = []
+    str_args = [str(a) for a in args]
+
+    if command in ("npx", "npx.cmd"):
+        pkg = _extract_npx_package(str_args)
+        if pkg:
+            return _npm_version(pkg)
+
+    if command in ("uvx", "pipx"):
+        pkg = _extract_first_positional(str_args)
+        if pkg:
+            return _pip_version(pkg)
+
+    if command in ("python", "python3") and "-m" in str_args:
+        idx = str_args.index("-m")
+        if idx + 1 < len(str_args):
+            return _pip_version(str_args[idx + 1].replace(".", "-"))
+
+    if not command.startswith("/"):
+        return _pip_version(command)
+
+    return ""
+
+
+def _extract_npx_package(args: list[str]) -> str:
+    """Extract the npm package name from npx args."""
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("-y", "--yes", "-q", "--quiet"):
+            continue
+        if arg.startswith("-p") or arg == "--package":
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return ""
+
+
+def _extract_first_positional(args: list[str]) -> str:
+    """Extract the first non-flag argument."""
+    for arg in args:
+        if not arg.startswith("-"):
+            return arg
+    return ""
+
+
+def _npm_version(pkg: str) -> str:
+    """Get version from npm registry."""
+    try:
+        result = subprocess.run(
+            ["npm", "view", pkg, "version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _pip_version(pkg: str) -> str:
+    """Get version from pip show."""
+    try:
+        result = subprocess.run(
+            ["pip", "show", pkg],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _server_from_connection(name: str, connection: Any) -> McpServer:  # noqa: ANN401
     """Convert a ``Connection`` mapping into an ``McpServer``."""
     if not isinstance(connection, Mapping):
@@ -134,8 +230,9 @@ def _server_from_connection(name: str, connection: Any) -> McpServer:  # noqa: A
     conn = cast("Mapping[str, Any]", connection)
     transport = str(conn.get("transport") or "").lower() or "unknown"
     endpoint = _endpoint_for(transport, conn)
+    version = _resolve_version_from_connection(conn)
 
-    return McpServer(name=name, transport=transport, endpoint=endpoint)
+    return McpServer(name=name, transport=transport, endpoint=endpoint, version=version)
 
 
 def _endpoint_for(transport: str, connection: Mapping[str, Any]) -> str:
