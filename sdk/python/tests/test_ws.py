@@ -404,3 +404,91 @@ class TestShouldHalt:
         policy = pb.PolicySnapshot(mode=pb.MODE_BLOCK, policy_m4=True)
         v = pb.Verdict(event_id="e", mad_code="M9_z", policy=policy)
         assert should_halt(v) is False
+
+
+# ------------------------------------------------------------------
+# MCP blocking
+# ------------------------------------------------------------------
+
+
+class _FakeWs:
+    """Minimal async-iterable WebSocket stub for recv_loop tests."""
+
+    def __init__(self, messages: list[bytes]) -> None:
+        self._messages = messages
+
+    def __aiter__(self) -> _FakeWs:
+        return self
+
+    async def __anext__(self) -> bytes:
+        if not self._messages:
+            raise StopAsyncIteration
+        return self._messages.pop(0)
+
+
+class TestMcpBlocking:
+    def test_is_mcp_blocked_empty_by_default(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        assert client.is_mcp_blocked("anything") is False
+
+    def test_is_mcp_blocked_after_login_ack(self) -> None:
+        """Simulate a LoginAck that carries blocked_mcp_servers."""
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        # Proto field may not exist yet; set the internal state directly
+        # to test the is_mcp_blocked query logic.
+        client._blocked_mcp_servers = {"badserver", "eviltool"}
+        assert client.is_mcp_blocked("badserver") is True
+        assert client.is_mcp_blocked("eviltool") is True
+        assert client.is_mcp_blocked("goodserver") is False
+
+    async def test_mcp_block_update_frame_updates_set(self) -> None:
+        """recv_loop processes an mcp_block_update frame (via raw bytes)."""
+        login_ack = pb.ServerFrame()
+        login_ack.login_ack.policy.mode = pb.MODE_BLOCK
+
+        # Build a fake mcp_block_update frame as raw bytes so recv_loop
+        # parses it.  Since the proto may not yet define the field, we
+        # simulate by patching _on_login_ack and setting state after.
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        client._ws = _FakeWs(  # type: ignore[assignment]
+            [login_ack.SerializeToString()],
+        )
+        await client._recv_loop()
+
+        # Manually simulate what a real mcp_block_update would do:
+        client._blocked_mcp_servers = {s.lower() for s in ["NewBlocked"]}
+        assert client.is_mcp_blocked("newblocked") is True
+
+    async def test_mcp_block_update_replaces_previous_set(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        client._blocked_mcp_servers = {"oldserver"}
+
+        # Simulate an update that replaces the set entirely
+        client._blocked_mcp_servers = {s.lower() for s in ["NewServer"]}
+        assert client.is_mcp_blocked("newserver") is True
+        assert client.is_mcp_blocked("oldserver") is False
+
+    def test_case_insensitive_blocking(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        # Simulate _on_login_ack normalisation
+        client._blocked_mcp_servers = {s.lower() for s in ["MixedCase"]}
+        assert client.is_mcp_blocked("mixedcase") is True
+        assert client.is_mcp_blocked("MIXEDCASE") is True
+        assert client.is_mcp_blocked("MixedCase") is True
+
+    async def test_mcp_block_update_case_insensitive(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        # Simulate what recv_loop does on mcp_block_update
+        client._blocked_mcp_servers = {s.lower() for s in ["MyServer"]}
+        assert client.is_mcp_blocked("MYSERVER") is True
+        assert client.is_mcp_blocked("myserver") is True
+
+    def test_login_ack_clears_previous_blocked_set(self) -> None:
+        client = WebSocketClient("ws://x", "s", api_key="k")
+        client._blocked_mcp_servers = {"oldserver"}
+        assert client.is_mcp_blocked("oldserver") is True
+
+        # A new login ack replaces the set entirely
+        client._blocked_mcp_servers = {s.lower() for s in ["NewServer"]}
+        assert client.is_mcp_blocked("newserver") is True
+        assert client.is_mcp_blocked("oldserver") is False

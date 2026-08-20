@@ -10,13 +10,18 @@ import os
 import tempfile
 from typing import Any
 
+from unittest.mock import patch
+
 from adrian_cc.agent import (
     _STATE_FILE,
     MODE_DEFER_HITL,
     _build_event,
     _current_agent,
+    _handle_pre,
     _load_state,
+    _mutate_state,
     _parent_agent,
+    _reset_state,
     _save_state,
     _verdict_action,
 )
@@ -503,3 +508,186 @@ class TestVerdictAction:
         r = self._result(pb.MODE_BLOCK, "M2.c")
         r["policy"]["policy_m2"] = True
         assert _verdict_action(r) == "block"
+
+
+# ---------------------------------------------------------------
+# MCP blocking
+# ---------------------------------------------------------------
+
+
+def _default_state() -> dict[str, Any]:
+    return {
+        "agent_stack": [{"agent_id": "claude-code", "spawn_id": ""}],
+        "invocation_count": 0,
+        "blocked_mcp_servers": [],
+    }
+
+
+class TestMcpBlocking:
+    @staticmethod
+    def _hook(**kw: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "session_id": "s1",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo hi"},
+            "tool_use_id": "tu1",
+            "cwd": "/tmp",
+            "transcript_path": "",
+            "agent_id": "claude-code",
+        }
+        base.update(kw)
+        return base
+
+    def test_blocked_mcp_tool_denied(self) -> None:
+        state = _default_state()
+        state["blocked_mcp_servers"] = ["fetch"]
+
+        with patch("adrian_cc.agent._load_state", return_value=state), \
+             patch("adrian_cc.agent._exit_json") as mock_exit, \
+             patch("adrian_cc.agent._mutate_state"):
+            mock_exit.side_effect = SystemExit(0)
+            try:
+                _handle_pre(self._hook(tool_name="mcp__fetch__fetch"))
+            except SystemExit:
+                pass
+            mock_exit.assert_called_once()
+            payload = mock_exit.call_args[0][0]
+            assert payload["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_allowed_mcp_tool_not_denied(self) -> None:
+        state = _default_state()
+        state["blocked_mcp_servers"] = ["fetch"]
+
+        with patch("adrian_cc.agent._load_state", return_value=state), \
+             patch("adrian_cc.agent._send_event_sync") as mock_send, \
+             patch("adrian_cc.agent._exit_allow") as mock_allow, \
+             patch("adrian_cc.agent._exit_json") as mock_exit_json, \
+             patch("adrian_cc.agent._mutate_state"):
+            mock_send.return_value = {
+                "mode": pb.MODE_ALERT, "policy": None,
+                "verdict": None, "error": None,
+            }
+            mock_allow.side_effect = SystemExit(0)
+            mock_exit_json.side_effect = SystemExit(0)
+            try:
+                _handle_pre(self._hook(tool_name="mcp__github__search"))
+            except SystemExit:
+                pass
+            for call in mock_exit_json.call_args_list:
+                payload = call[0][0]
+                reason = payload.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+                assert "blocked" not in reason.lower()
+
+    def test_case_insensitive_blocking(self) -> None:
+        """Tool 'mcp__Fetch__tool' matches blocked server 'fetch' (lowercased at storage)."""
+        state = _default_state()
+        state["blocked_mcp_servers"] = ["fetch"]
+
+        with patch("adrian_cc.agent._load_state", return_value=state), \
+             patch("adrian_cc.agent._exit_json") as mock_exit, \
+             patch("adrian_cc.agent._mutate_state"):
+            mock_exit.side_effect = SystemExit(0)
+            try:
+                _handle_pre(self._hook(tool_name="mcp__Fetch__fetch"))
+            except SystemExit:
+                pass
+            mock_exit.assert_called_once()
+            payload = mock_exit.call_args[0][0]
+            assert payload["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_non_mcp_tool_passes_through(self) -> None:
+        state = _default_state()
+        state["blocked_mcp_servers"] = ["fetch"]
+
+        with patch("adrian_cc.agent._load_state", return_value=state), \
+             patch("adrian_cc.agent._send_event_sync") as mock_send, \
+             patch("adrian_cc.agent._exit_allow") as mock_allow, \
+             patch("adrian_cc.agent._exit_json") as mock_exit_json, \
+             patch("adrian_cc.agent._mutate_state"):
+            mock_send.return_value = {
+                "mode": pb.MODE_ALERT, "policy": None,
+                "verdict": None, "error": None,
+            }
+            mock_allow.side_effect = SystemExit(0)
+            mock_exit_json.side_effect = SystemExit(0)
+            try:
+                _handle_pre(self._hook(tool_name="Bash"))
+            except SystemExit:
+                pass
+            for call in mock_exit_json.call_args_list:
+                payload = call[0][0]
+                reason = payload.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+                assert "blocked" not in reason.lower()
+
+    def test_corrupted_blocked_list_does_not_crash(self) -> None:
+        """If blocked_mcp_servers is a string (corrupted state), don't crash."""
+        state = _default_state()
+        state["blocked_mcp_servers"] = "fetch"  # corrupted: string not list
+
+        with patch("adrian_cc.agent._load_state", return_value=state), \
+             patch("adrian_cc.agent._send_event_sync") as mock_send, \
+             patch("adrian_cc.agent._exit_allow") as mock_allow, \
+             patch("adrian_cc.agent._exit_json") as mock_exit_json, \
+             patch("adrian_cc.agent._mutate_state"):
+            mock_send.return_value = {
+                "mode": pb.MODE_ALERT, "policy": None,
+                "verdict": None, "error": None,
+            }
+            mock_allow.side_effect = SystemExit(0)
+            mock_exit_json.side_effect = SystemExit(0)
+            try:
+                _handle_pre(self._hook(tool_name="mcp__fetch__fetch"))
+            except SystemExit:
+                pass
+            # Should not have denied (isinstance guard catches non-list)
+            for call in mock_exit_json.call_args_list:
+                payload = call[0][0]
+                assert payload.get("hookSpecificOutput", {}).get("permissionDecision") != "deny"
+
+
+class TestResetStateMcpBlocking:
+    def test_reset_clears_blocked_list(self, tmp_path: Any) -> None:
+        import adrian_cc.agent as agent_mod
+        orig_file, orig_dir, orig_lock = agent_mod._STATE_FILE, agent_mod._STATE_DIR, agent_mod._STATE_LOCK
+        try:
+            agent_mod._STATE_DIR = tmp_path
+            agent_mod._STATE_FILE = tmp_path / "cc-state.json"
+            agent_mod._STATE_LOCK = tmp_path / "adrian-cc-state.lock"
+            _save_state({
+                "agent_stack": [{"agent_id": "claude-code", "spawn_id": ""}],
+                "invocation_count": 5,
+                "blocked_mcp_servers": ["fetch"],
+            })
+            _reset_state()
+            state = _load_state()
+            assert state["invocation_count"] == 0
+            assert state["blocked_mcp_servers"] == []
+        finally:
+            agent_mod._STATE_FILE, agent_mod._STATE_DIR, agent_mod._STATE_LOCK = orig_file, orig_dir, orig_lock
+
+
+class TestBlockedMcpServersProto:
+    def test_login_ack_field(self) -> None:
+        ack = pb.LoginAck()
+        ack.blocked_mcp_servers.extend(["fetch", "filesystem"])
+        assert list(ack.blocked_mcp_servers) == ["fetch", "filesystem"]
+
+    def test_login_ack_empty(self) -> None:
+        ack = pb.LoginAck()
+        assert list(ack.blocked_mcp_servers) == []
+
+    def test_roundtrip(self) -> None:
+        sf = pb.ServerFrame()
+        sf.login_ack.blocked_mcp_servers.extend(["github", "fetch"])
+        sf2 = pb.ServerFrame()
+        sf2.ParseFromString(sf.SerializeToString())
+        assert list(sf2.login_ack.blocked_mcp_servers) == ["github", "fetch"]
+
+    def test_mcp_block_update_roundtrip(self) -> None:
+        sf = pb.ServerFrame()
+        sf.mcp_block_update.blocked_mcp_servers.extend(["fetch", "filesystem"])
+        sf2 = pb.ServerFrame()
+        sf2.ParseFromString(sf.SerializeToString())
+        assert sf2.WhichOneof("frame") == "mcp_block_update"
+        assert list(sf2.mcp_block_update.blocked_mcp_servers) == ["fetch", "filesystem"]

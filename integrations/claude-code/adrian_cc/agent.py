@@ -341,6 +341,7 @@ def _reset_state() -> None:
             {
                 "agent_stack": [{"agent_id": "claude-code", "spawn_id": ""}],
                 "invocation_count": 0,
+                "blocked_mcp_servers": [],
             }
         )
     )
@@ -658,7 +659,7 @@ async def _ws_send_event(
                     "policy_m4": policy.policy_m4,
                 }
                 result["source_ack"] = sf.login_ack.source
-                blocked_list = list(sf.login_ack.blocked_mcp_servers)
+                blocked_list = [b.lower() for b in sf.login_ack.blocked_mcp_servers]
                 _mutate_state(lambda s: s.__setitem__("blocked_mcp_servers", blocked_list))
 
             # --- Send event ---
@@ -1192,6 +1193,9 @@ def _send_inventory_sync(
                 raw = await _asyncio.wait_for(ws.recv(), timeout=5)
                 sf = pb.ServerFrame()
                 sf.ParseFromString(raw if isinstance(raw, bytes) else raw.encode())
+                if sf.WhichOneof("frame") == "login_ack":
+                    blocked = [b.lower() for b in sf.login_ack.blocked_mcp_servers]
+                    _mutate_state(lambda s: s.__setitem__("blocked_mcp_servers", blocked))
                 if mcp_servers:
                     inv = pb.McpInventory(servers=mcp_servers)
                     await ws.send(pb.ClientFrame(mcp_inventory=inv).SerializeToString())
@@ -1248,14 +1252,16 @@ def _handle_pre(hook_data: dict[str, Any]) -> None:
         delegated_prompt = _subagent_delegated_prompt(transcript_path, cc_agent_id)
 
     # Passive MCP discovery: infer MCP server from mcp__<server>__<tool> pattern.
+    # Parse server name: strip "mcp__" prefix, find next "__" separator.
     if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__", 2)
-        if len(parts) >= 2:
-            server_name = parts[1]
+        rest = tool_name[5:]
+        sep = rest.find("__")
+        server_name = rest[:sep] if sep != -1 else rest
+        if server_name:
             _mutate_state(lambda s: s.setdefault("discovered_mcp", {}).__setitem__(server_name, True))
 
-            blocked_set = set(_load_state().get("blocked_mcp_servers", []))
-            if server_name in blocked_set:
+            blocked_list = _load_state().get("blocked_mcp_servers", [])
+            if isinstance(blocked_list, list) and server_name.lower() in blocked_list:
                 blocked_event = _build_event(
                     hook_data,
                     _load_state(),
