@@ -559,3 +559,62 @@ class TestSyncToolNodeBlocking:
 
         assert captured == []
         assert "BLOCKED" in result["messages"][0].content
+
+
+class TestSyncGateBeforeLoginAck:
+    """The sync gate must not skip while the handshake is still in flight.
+
+    ``_async_gate`` waits for the LoginAck and blocks if it never arrives.
+    ``_sync_gate`` used to answer that itself and skip, so the first tool
+    call of a run ran ungated if the tool was sync, while an identical async
+    tool was gated. The verdict still arrived, which made the bypass silent.
+    """
+
+    async def test_sync_tool_gated_when_login_ack_is_late(self, tmp_path: Path) -> None:
+        """LoginAck lands after dispatch: the tool must still be blocked."""
+        captured: list[str] = []
+
+        def _real_tool(x: str) -> str:
+            """Sync tool stub; records execution."""
+            captured.append(x)
+
+            return x
+
+        adrian.init(
+            api_key="k",
+            log_file=str(tmp_path / "events.jsonl"),
+            auto_instrument=True,
+            ws_url="ws://x",
+            block_timeout=5.0,
+        )
+
+        ws = adrian._ws_client
+        assert ws is not None
+        policy = _apply_mode(ws, pb.MODE_BLOCK, policy_m4=True)
+        ws._connected.set()
+        ws._loop = asyncio.get_running_loop()
+        ws._tool_call_id_to_event_id["tc-1"] = "llm-evt"
+        fut = ws.register_pending("llm-evt")
+        fut.set_result(
+            pb.Verdict(event_id="llm-evt", mad_code="M4_a", policy=policy),
+        )
+
+        # Dispatch before the handshake completes.
+        ws._login_ack_received.clear()
+
+        async def _late_login_ack() -> None:
+            await asyncio.sleep(0.05)
+            ws._login_ack_received.set()
+
+        _ = asyncio.create_task(_late_login_ack())
+
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"id": "tc-1", "name": "_real_tool", "args": {"x": "hi"}}],
+        )
+        state: dict[str, Any] = {"messages": [ai]}
+
+        result = await ToolNode([_real_tool]).ainvoke(state, config=_runtime_config())  # pyright: ignore[reportUnknownMemberType]
+
+        assert captured == []
+        assert "BLOCKED" in result["messages"][0].content
