@@ -614,9 +614,20 @@ def _patch_base_tool() -> None:
         thread (no loop *set* there, since Python 3.10+), which would
         misclassify the worker-thread case as "no loop" and skip the gate -
         leaving sync tools ungated under ``create_react_agent``.
+
+        Login and policy checks belong to ``_async_gate``, which waits for the
+        handshake. Deciding them here races startup and lets the first sync
+        tool call of a run through ungated.
+
+        Args:
+            tool_call_id: Id of the tool call to gate.
+
+        Returns:
+            True if the tool should be blocked.
         """
         ws = _ws_getter()
-        if ws is None or not ws._login_ack_received.is_set() or not ws.policy_active():  # pyright: ignore[reportPrivateUsage]
+
+        if ws is None:
             return False
 
         # Is THIS thread running an event loop?
