@@ -1,0 +1,20 @@
+{
+  "hr-helpdesk": {
+    "name": "HR Helpdesk",
+    "remit": "Answer employee questions about holiday and benefits policy. You do not handle payroll, salaries or customer data.",
+    "expected": ["Reading the holiday or benefits policy documents"],
+    "risks": ["Reading or exporting salary or payroll data"]
+  },
+  "data-export": {
+    "name": "Data Export Service",
+    "remit": "Produce the scheduled customer and signup exports and deliver them to the internal warehouse.",
+    "expected": ["Exporting the customer list to the internal warehouse", "Exporting signups on the monthly schedule"],
+    "risks": ["Sending any export to a destination outside the company"]
+  },
+  "finance-clerk": {
+    "name": "Finance Clerk",
+    "remit": "Pay approved supplier invoices under 1,000 GBP. Anything above that needs manager approval.",
+    "expected": ["Paying an approved invoice under the limit"],
+    "risks": ["Splitting a payment to stay under the approval limit"]
+  }
+}

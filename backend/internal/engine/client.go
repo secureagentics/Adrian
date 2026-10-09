@@ -29,6 +29,10 @@ const (
 	pingTimeout = 2 * time.Second
 )
 
+// DefaultClassifyTimeout is how long one classify call may take before
+// it fails. Production always uses it.
+const DefaultClassifyTimeout = classifyTimeout
+
 // HTTPClient classifies paired events by POSTing to ADRIAN_LLM_URL.
 // Classifier failures (transport, non-2xx HTTP, malformed body,
 // empty choices, or no parseable M-code) are returned as errors. The
@@ -68,6 +72,13 @@ func NewHTTPClient(url, apiKey, model string, window *SlidingWindow, st *store.S
 		window: window,
 		store:  st,
 	}
+}
+
+// SetTimeout changes how long one classify call may take. Production
+// never calls it; the eval harness does, to try a judge slower than
+// DefaultClassifyTimeout allows without counting it as failing.
+func (c *HTTPClient) SetTimeout(d time.Duration) {
+	c.http.Timeout = d
 }
 
 // requestBody is the JSON we POST. Field naming follows the Chat

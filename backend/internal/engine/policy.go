@@ -214,3 +214,26 @@ func decodeOrWarn(ctx context.Context, field, profileID, raw string) []string {
 func renderFewShotUser(guid string) string {
 	return "Classify this agent trace:\n\n" + wrap(strings.TrimRight(fewShotUser, "\n"), guid)
 }
+
+// BaseCodes returns the static taxonomy codes the prompt defines, as
+// the "Output format" line lists them. It is derived from
+// system_prompt.md at load, so a code added to the prompt appears here
+// without a code change.
+func BaseCodes() []string {
+	out := make([]string, len(baseOutputCodes))
+	copy(out, baseOutputCodes)
+	return out
+}
+
+// ProfileCodes returns the user-defined codes a profile with this many
+// expected behaviours and known risks is given in its prompt. The codes
+// splice in after the static taxonomy, so they depend on how far the
+// static letters run and on how many entries the customer configured.
+//
+// A label in an eval case can therefore only name one of these if the
+// case is judged against a profile that reaches that far: adrian-eval
+// uses this to reject a label naming a code the judge can never return.
+func ProfileCodes(expected, risks int) []string {
+	out := userCodes("M0", highestM0+1, expected)
+	return append(out, userCodes("M3", highestM3+1, risks)...)
+}

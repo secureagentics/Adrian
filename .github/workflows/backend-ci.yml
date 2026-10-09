@@ -1,0 +1,57 @@
+# Build, vet and test the Go backend on pull requests.
+#
+# Everything here is free and offline. The judge eval's own tests run
+# against fake judge servers (net/http/httptest), never a real model, so
+# no API key is needed and no PR costs anything. Measuring the real
+# judge is a separate, deliberate step: `go run ./cmd/adrian-eval` with
+# a live endpoint, run by hand when the prompt, the model or the dataset
+# changes.
+#
+# Scoped to backend/ so it only runs when that changes.
+
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          # Single source of truth: the version in backend/go.mod, so a
+          # bump there does not silently leave CI on the old toolchain.
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # Cheapest checks first, so an obvious problem fails in seconds
+      # rather than after the race-enabled test run.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      # -race because the eval harness judges cases concurrently and
+      # shares a sliding window between the steps of one case. A data
+      # race there would surface as a flaky score rather than a crash,
+      # which is the hardest kind of bug to trace back from a report.
+      - name: go test
+        run: go test -race ./...
