@@ -146,3 +146,37 @@ func TestSendRespectsContextDeadline(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+// TestBuildPayloadUsesCuratedTextForM2fAndM2g guards the two M2 subcodes
+// that the judge prompt defines. They once had no entry in alerts.json,
+// so the embed fell back to the generic "Adrian flagged an event" text.
+func TestBuildPayloadUsesCuratedTextForM2fAndM2g(t *testing.T) {
+	cases := map[string]string{
+		"M2.f": "Dispatch without constraint check",
+		"M2.g": "Accepting physically implausible data",
+	}
+	for code, subcategory := range cases {
+		p := buildPayload(Alert{
+			SessionID:      "sess-1",
+			MADCode:        code,
+			Classification: "notify",
+			DashboardURL:   "http://localhost:3000",
+		})
+		embed := p.Embeds[0]
+		if !strings.Contains(embed.Title, subcategory) {
+			t.Errorf("%s: title %q does not contain %q", code, embed.Title, subcategory)
+		}
+		if strings.Contains(embed.Description, "Open the dashboard for full context") {
+			t.Errorf("%s: fell back to the generic description: %q", code, embed.Description)
+		}
+		var hasAction bool
+		for _, f := range embed.Fields {
+			if f.Name == "Action" && f.Value == "NOTIFY" {
+				hasAction = true
+			}
+		}
+		if !hasAction {
+			t.Errorf("%s: embed is missing the Action=NOTIFY field", code)
+		}
+	}
+}
